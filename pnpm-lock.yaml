@@ -56,6 +56,9 @@ importers:
       react-shiki:
         specifier: ^0.7.1
         version: 0.7.1(@preact/compat@18.3.1(preact@10.26.9))(@preact/compat@18.3.1(preact@10.26.9))
+      react-voice-visualizer:
+        specifier: ^2.0.8
+        version: 2.0.8(@preact/compat@18.3.1(preact@10.26.9))(@preact/compat@18.3.1(preact@10.26.9))
       swr:
         specifier: ^2.3.3
         version: 2.3.3(@preact/compat@18.3.1(preact@10.26.9))
@@ -1427,6 +1430,12 @@ packages:
     peerDependencies:
       react: '>= 16.8.0'
       react-dom: '>= 16.8.0'
+
+  react-voice-visualizer@2.0.8:
+    resolution: {integrity: sha512-oA/IyNeh15+mERgm2n33IAqQaMGBEFN1n3gs2V/0LbLyscqsbhNo8JOFXh2I9neIqYJ4q27TEzXzbO00Xq/aXg==}
+    peerDependencies:
+      react: ^18.2.0
+      react-dom: ^18.2.0
 
   regenerator-runtime@0.13.11:
     resolution: {integrity: sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==}
@@ -3499,6 +3508,11 @@ snapshots:
       unist-util-visit: 5.0.0
     transitivePeerDependencies:
       - supports-color
+
+  react-voice-visualizer@2.0.8(@preact/compat@18.3.1(preact@10.26.9))(@preact/compat@18.3.1(preact@10.26.9)):
+    dependencies:
+      react: '@preact/compat@18.3.1(preact@10.26.9)'
+      react-dom: '@preact/compat@18.3.1(preact@10.26.9)'
 
   regenerator-runtime@0.13.11: {}
 

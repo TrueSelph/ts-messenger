@@ -42,15 +42,13 @@ import {
 	type ChangeEvent,
 	type SetStateAction,
 } from "preact/compat";
-import { LiveAudioVisualizer } from "react-audio-visualize";
-// import { useAudioRecorder } from "react-audio-voice-recorder";
+import { useVoiceVisualizer, VoiceVisualizer } from "react-voice-visualizer";
 import {
 	AiOutlineArrowUp,
 	AiOutlinePause,
 	AiOutlineStop,
 } from "react-icons/ai";
 import { HiOutlineMicrophone } from "react-icons/hi";
-import useAudioRecorder from "./useAudioRecorder";
 import {
 	type Interaction,
 	type MediaResponseMessage,
@@ -257,9 +255,9 @@ export function AppContainer({
 			</style>
 			<ColorModeProvider forcedTheme="dark">
 				<Stack
-					// px={{ base: "2", lg: "20" }}
 					py="4"
-					alignItems="flex-start"
+					alignItems={data?.length ? "flex-start" : "center"}
+					justifyContent={data?.length ? undefined : "center"}
 					h="100%"
 				>
 					{headerConfigParsed?.show && (
@@ -272,16 +270,23 @@ export function AppContainer({
 							agentName={agentName}
 						/>
 					)}
-					<Messages
-						TTS={TTS}
-						interactions={data || []}
-						playingUrl={playingUrl}
-						playAudio={playAudio}
-						stopAudio={stopAudio}
-						headerConfig={headerConfigParsed}
-						codeTheme={codeTheme}
-					/>
-					<Box mt="8" w="100%" flex="0 0 auto">
+					{data?.length ? (
+						<Messages
+							TTS={TTS}
+							interactions={data || []}
+							playingUrl={playingUrl}
+							playAudio={playAudio}
+							stopAudio={stopAudio}
+							headerConfig={headerConfigParsed}
+							codeTheme={codeTheme}
+						/>
+					) : null}
+					<Box mt={data?.length ? "8" : "0"} w="100%" flex="0 0 auto">
+						{data?.length ? null : (
+							<Text fontWeight={500} fontSize={"xl"} my="2">
+								Speak to {agentName}...
+							</Text>
+						)}
 						<ChatInput
 							playAudio={playAudio}
 							host={host}
@@ -447,6 +452,7 @@ export function Messages({
 	return (
 		<Stack
 			// alignItems={"flex-start"}
+			id="ts-messages"
 			w="100%"
 			ref={messagesWrapperRef}
 			// maxH={"20lh"}
@@ -836,7 +842,7 @@ function ChatHeader({
 			<Stack w="100%" py="12" flex="0 0 auto">
 				{headerConfig.showAvatar ? (
 					<Avatar.Root
-						rounded="sm"
+						shape="full"
 						w={140}
 						h={140}
 						shadow={"2xl"}
@@ -844,10 +850,7 @@ function ChatHeader({
 						animation={playingUrl ? "talking 2s infinite" : "none"}
 					>
 						<Avatar.Fallback />
-						<Avatar.Image
-							rounded="0"
-							src={headerConfig?.avatarUrl || avatarUrl}
-						/>
+						<Avatar.Image src={headerConfig?.avatarUrl || avatarUrl} />
 
 						<Float placement="bottom-end" offsetX="4" offsetY="4">
 							<div>
@@ -905,6 +908,7 @@ const ChatMessageContainer = chakra("div", {
 	variants: {
 		variant: {
 			sent: {
+				px: "4",
 				justifySelf: "flex-end",
 				// shadow: "xs",
 				rounded: "2xl",
@@ -941,13 +945,22 @@ export function ChatInput({
 	const [content, setContent] = useState("");
 	const [_contentDraft, setContentDraft] = useState("");
 	const [_userMsgIndex, setUserMsgIndex] = useState(0);
+	// const {
+	// isRecording,
+	// startRecording,
+	// stopRecording,
+	// mediaRecorder,
+	// recordingBlob,
+	// } = useAudioRecorder();
+
+	const recorderControls = useVoiceVisualizer();
 	const {
-		isRecording,
+		mediaRecorder,
+		isRecordingInProgress: isRecording,
 		startRecording,
 		stopRecording,
-		mediaRecorder,
-		recordingBlob,
-	} = useAudioRecorder();
+		recordedBlob: recordingBlob,
+	} = recorderControls;
 
 	const interactWithoutStreaming = async (
 		_url: string,
@@ -1167,13 +1180,22 @@ export function ChatInput({
 		}
 	}, [sessionId, content, isStreaming, controller.current]);
 
-	const sendMessage = useCallback(async () => {
-		if (streaming) {
-			await triggerWithStreaming({ content, sessionId } as any);
-		} else {
-			await triggerWithoutStreaming({ content, sessionId } as any);
-		}
-	}, [content, sessionId, streaming]);
+	const sendMessage = useCallback(
+		async (utterance?: string) => {
+			if (streaming) {
+				await triggerWithStreaming({
+					content: utterance || content,
+					sessionId,
+				} as any);
+			} else {
+				await triggerWithoutStreaming({
+					content: utterance || content,
+					sessionId,
+				} as any);
+			}
+		},
+		[content, sessionId, streaming],
+	);
 
 	const transcribe = async (blob: Blob) => {
 		const formData = new FormData();
@@ -1181,8 +1203,11 @@ export function ChatInput({
 			"file",
 			new File([blob], "recording.wav", { type: blob.type }),
 		);
+		formData.append("agentId", agentId);
+		formData.append("sessionId", sessionId || "");
+		formData.append("instanceId", instanceId || "");
 
-		return fetch("/api/transcribe", {
+		return fetch(`${host}/api/transcribe`, {
 			method: "POST",
 			body: formData,
 		});
@@ -1192,14 +1217,12 @@ export function ChatInput({
 		if (!recordingBlob) return;
 
 		transcribe(recordingBlob).then(async (res) => {
-			console.log({ res });
 			const result = (await res.json()) as
 				| { success: false }
 				| { success: true; transcript: string };
 
 			if (result.success) {
-				alert("send message");
-				// streamMutation.mutate({ chatId, content: result.transcript });
+				sendMessage(result.transcript);
 			}
 
 			return result;
@@ -1246,10 +1269,19 @@ export function ChatInput({
 						}}
 					/>
 				) : (
-					<LiveAudioVisualizer
-						mediaRecorder={mediaRecorder}
-						width={1000}
+					<VoiceVisualizer
+						isControlPanelShown={false}
 						height={40}
+						width={"100%"}
+						controls={recorderControls}
+						rounded={8}
+						barWidth={3}
+						mainBarColor="black"
+						backgroundColor="#EFF6FF"
+						fullscreen
+						animateCurrentPick
+						isProgressIndicatorTimeShown
+						speed={1}
 					/>
 				)}
 			</Card.Body>
@@ -1262,6 +1294,7 @@ export function ChatInput({
 							rounded="lg"
 							size="sm"
 							onClick={() => {
+								stopAudio();
 								isRecording ? stopRecording() : startRecording();
 							}}
 						>
