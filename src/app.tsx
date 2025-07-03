@@ -58,6 +58,7 @@ import {
 import useSWR, { SWRConfig } from "swr";
 import useSWRMutation from "swr/mutation";
 import type { ComponentChild } from "preact";
+import { ReplyIndicator } from "./components/ReplyIndicator";
 
 type HeaderConfig = {
 	showAvatar?: boolean;
@@ -260,12 +261,17 @@ export function AppContainer({
 					justifyContent={data?.length ? undefined : "center"}
 					h="100%"
 				>
-					{headerConfigParsed?.show && (
+					{(headerConfigParsed?.show || !data?.length) && (
 						<ChatHeader
 							playingUrl={playingUrl}
 							TTS={TTS}
 							setTTS={setTTS}
-							headerConfig={headerConfigParsed}
+							headerConfig={{
+								...headerConfigParsed,
+								showAvatar: !data?.length
+									? true
+									: headerConfigParsed.showAvatar,
+							}}
 							stopAudio={stopAudio}
 							agentName={agentName}
 						/>
@@ -750,6 +756,8 @@ export function ChatMessage({
 						value={interaction?.utterance || ""}
 						renderer={renderer as any}
 					/>
+				) : !interaction?.response?.message ? (
+					<ReplyIndicator show={true} />
 				) : (
 					renderMessageContent()
 				)}
