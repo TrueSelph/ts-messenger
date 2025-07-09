@@ -19,6 +19,22 @@ const config = defineConfig({
 					boxShadow: "0 0 0 0 rgba(255, 82, 82, 0)",
 				},
 			},
+			pulsez: {
+				"0%": {
+					transform: "scale(0.95)",
+					boxShadow: "0 0 0 0 rgba(0, 0, 0, 0.7)",
+				},
+
+				"70%": {
+					transform: "scale(1)",
+					boxShadow: "0 0 0 10px rgba(255, 82, 82, 0)",
+				},
+
+				"100%": {
+					transform: "scale(0.95)",
+					boxShadow: "0 0 0 0 rgba(255, 82, 82, 0)",
+				},
+			},
 			fadeInUp: {
 				"0%": { opacity: 0, transform: "translateY(10px)" },
 				"20%": { opacity: 0.2, transform: "translateY(8px)" },

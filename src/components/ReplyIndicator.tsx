@@ -89,7 +89,7 @@ const ReplyIndicatorContainter = chakra("div", {
 	base: {
 		display: "flex",
 		justifyContent: "center",
-		padding: "10px",
+		paddingInline: "10px",
 		animation: `0.5s ease-in fadeInUp`,
 		fill: "white",
 		color: "white",

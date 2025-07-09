@@ -8,7 +8,7 @@ export default defineConfig({
 	build: {
 		rollupOptions: {
 			output: {
-				entryFileNames: "messenger.js",
+				entryFileNames: "index.js",
 			},
 		},
 	},
