@@ -1033,7 +1033,9 @@ export function ChatInput({
 				streaming: false,
 			}),
 			headers: {
-				"Content-Type": "text/plain",
+				"Content-Type": hostURL?.includes("app.trueselph.com")
+					? "text/plain"
+					: "application/json",
 			},
 		}).then((res) => res.json());
 
@@ -1058,7 +1060,9 @@ export function ChatInput({
 				streaming: true,
 			}),
 			headers: {
-				"Content-Type": "text/plain",
+				"Content-Type": hostURL?.includes("app.trueselph.com")
+					? "text/plain"
+					: "application/json",
 			},
 		});
 
