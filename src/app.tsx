@@ -1003,7 +1003,6 @@ export function ChatInput({
 			if (socket?.readyState === WebSocket.OPEN) {
 				socket.onmessage = (event) => {
 					const data = JSON.parse(event.data);
-					console.log("yoo");
 					const response = data.data;
 
 					if (data.type === "connection") {
@@ -1053,6 +1052,8 @@ export function ChatInput({
 						}
 					}
 				};
+
+				socket.send(JSON.stringify({ type: "connection" }));
 
 				controller.current?.signal.addEventListener("abort", () => {
 					socket.onmessage = null;
