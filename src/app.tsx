@@ -117,12 +117,20 @@ export function App(props: AppProps) {
 					: (localStorageProvider(props.agentId, props.sessionId) as any),
 			}}
 		>
-			<AppContainer {...props} />
+			<AppContainer
+				{...props}
+				streaming={
+					typeof (props.streaming as string | boolean) == "string"
+						? (props.streaming as unknown as string) === "true"
+						: props.streaming
+				}
+			/>
 		</SWRConfig>
 	);
 }
 
 export function AppContainer(props: AppProps) {
+	const socket = new WebSocket(`${props.host}/websocket`);
 	const { headerConfig, theme, layout = "standard" } = props;
 
 	const headerConfigParsed = (
@@ -139,6 +147,7 @@ export function AppContainer(props: AppProps) {
 				{layout === "popup" ? (
 					<Popup {...props} headerConfig={headerConfigParsed}>
 						<ChatContainer
+							socket={socket}
 							themeParsed={themeParsed}
 							headerConfigParsed={headerConfigParsed}
 							{...props}
@@ -146,6 +155,7 @@ export function AppContainer(props: AppProps) {
 					</Popup>
 				) : (
 					<ChatContainer
+						socket={socket}
 						themeParsed={themeParsed}
 						headerConfigParsed={headerConfigParsed}
 						{...props}
@@ -168,9 +178,11 @@ function ChatContainer({
 	host,
 	instanceId,
 	withDebug,
+	socket,
 }: AppProps & {
 	themeParsed: Record<string, string>;
 	headerConfigParsed: HeaderConfig;
+	socket: WebSocket;
 }) {
 	const [TTS, setTTS] = useState(true);
 	const [playingUrl, setPlayingUrl] = useState("");
@@ -329,6 +341,7 @@ function ChatContainer({
 						</Text>
 					)}
 					<ChatInput
+						socket={socket}
 						playAudio={playAudio}
 						host={host}
 						streaming={!!streaming}
@@ -426,71 +439,6 @@ export function Messages({
 		}
 	}, [messagesWrapperRef.current, interactions]);
 
-	// const mediaInteraction = {
-	// 	response: {
-	// 		session_id: "baa1711c-2edf-4de1-a01c-81f1fd31d140",
-	// 		message_type: "MEDIA",
-	// 		message: {
-	// 			message_type: "MEDIA",
-	// 			content: "",
-	// 			mime: "image/png",
-	// 			data: "https://davidsbeenhere.com/wp-content/uploads/2024/03/kaieteur-falls-davidsbeenhere-5.jpg",
-	// 			meta: {},
-	// 		},
-	// 		tokens: 346,
-	// 	},
-	// };
-
-	// const mediaInteractionVideo = {
-	// 	response: {
-	// 		session_id: "baa1711c-2edf-4de1-a01c-81f1fd31d140",
-	// 		message_type: "MEDIA",
-	// 		message: {
-	// 			message_type: "MEDIA",
-	// 			content: "",
-	// 			mime: "video/mp4",
-	// 			data: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-	// 			meta: {},
-	// 		},
-	// 		tokens: 346,
-	// 	},
-	// };
-
-	// const multiInteraction = {
-	// 	response: {
-	// 		session_id: "baa1711c-2edf-4de1-a01c-81f1fd31d140",
-	// 		message_type: "MULTI",
-	// 		message: {
-	// 			message_type: "MULTI",
-	// 			content: [
-	// 				{
-	// 					message_type: "TEXT",
-	// 					content:
-	// 						"Here's a beautiful waterfall image along with some information.",
-	// 					meta: {},
-	// 				},
-	// 				{
-	// 					message_type: "MEDIA",
-	// 					content: "Kaieteur Falls in Guyana",
-	// 					mime: "image/jpeg",
-	// 					data: {
-	// 						url: "https://davidsbeenhere.com/wp-content/uploads/2024/03/kaieteur-falls-davidsbeenhere-5.jpg",
-	// 					},
-	// 					meta: {},
-	// 				},
-	// 				{
-	// 					message_type: "TEXT",
-	// 					content:
-	// 						"Kaieteur Falls is a waterfall on the Potaro River in Kaieteur National Park, Guyana. It is 226 meters (741 ft) high when measured from its plunge over a sandstone and conglomerate cliff to the first break.",
-	// 					meta: {},
-	// 				},
-	// 			],
-	// 			meta: {},
-	// 		},
-	// 		tokens: 346,
-	// 	},
-	// };
-
 	return (
 		<Stack
 			// alignItems={"flex-start"}
@@ -502,12 +450,6 @@ export function Messages({
 			px="4"
 			flex="1 1 auto"
 		>
-			{/* <ChatMessage interaction={{ ...interactions[0], ...mediaInteraction } as Interaction} />
-			<ChatMessage
-				interaction={{ ...interactions[0], ...mediaInteractionVideo } as Interaction}
-			/>
-			<ChatMessage interaction={{ ...interactions[0], ...multiInteraction } as Interaction} /> */}
-
 			{interactions
 				?.filter((interaction) =>
 					!debuggedInteraction
@@ -741,7 +683,12 @@ export function ChatMessage({
 
 		if (message.message_type === "TEXT") {
 			return (
-				<Markdown value={message.content || ""} renderer={renderer as any} />
+				<Markdown
+					gfm={true}
+					breaks={true}
+					value={message.content || ""}
+					renderer={renderer as any}
+				/>
 			);
 		} else if (message.message_type === "MEDIA") {
 			return <MediaMessage message={message} />;
@@ -754,6 +701,8 @@ export function ChatMessage({
 						<Fragment key={`multi-${index}`}>
 							{item.message_type === "TEXT" && (
 								<Markdown
+									gfm={true}
+									breaks={true}
 									value={item.content || ""}
 									renderer={renderer as Partial<ReactRenderer>}
 								/>
@@ -958,7 +907,11 @@ const ChatMessageContainer = chakra("div", {
 		p: "2",
 		bg: "var(--ts-response-msg-bg, transparent)",
 		display: "inline-block",
-		color: "var(--ts-response-msg-color, inherit)",
+		color: "var(--ts-response-msg-color, black)",
+		"& a": {
+			fontWeight: 500,
+			fontStyle: "italic",
+		},
 	},
 	variants: {
 		variant: {
@@ -984,6 +937,7 @@ export function ChatInput({
 	host,
 	stopAudio,
 	setTTS,
+	socket,
 }: {
 	sessionId: string;
 	agentId: string;
@@ -994,19 +948,12 @@ export function ChatInput({
 	TTS: boolean;
 	stopAudio: () => void;
 	setTTS: React.Dispatch<SetStateAction<boolean>>;
+	socket: WebSocket;
 }) {
 	const hostURL = host || "https://app.trueselph.com";
-	// const [isStreaming, setIsStreaming] = useState(false);
 	const [content, setContent] = useState("");
 	const [_contentDraft, setContentDraft] = useState("");
 	const [_userMsgIndex, setUserMsgIndex] = useState(0);
-	// const {
-	// isRecording,
-	// startRecording,
-	// stopRecording,
-	// mediaRecorder,
-	// recordingBlob,
-	// } = useAudioRecorder();
 
 	const recorderControls = useVoiceVisualizer();
 	const {
@@ -1037,36 +984,85 @@ export function ChatInput({
 					? "text/plain"
 					: "application/json",
 			},
-		}).then((res) => res.json());
+		})
+			.then((res) => res.json())
+			.then((res) => res?.reports?.[0]);
 
 		document.cookie = `tsSessionId=${fullResult.response?.session_id}; path=/`;
 
 		return [fullResult];
 	};
 
+	let fullContent = "";
+
 	const interactWithStreaming = async (
 		_url: string,
 		{ arg }: { arg: { sessionId: string; content: string } },
 	) => {
-		const stream = await fetch(`${hostURL}/interact`, {
-			method: "POST",
-			body: JSON.stringify({
-				agent_id: agentId,
-				instance_id: instanceId ? instanceId : undefined,
-				utterance: arg.content,
-				session_id: arg.sessionId,
-				tts: TTS,
-				verbose: true,
-				streaming: true,
-			}),
-			headers: {
-				"Content-Type": hostURL?.includes("app.trueselph.com")
-					? "text/plain"
-					: "application/json",
-			},
-		});
+		return new Promise((resolve, reject) => {
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.onmessage = (event) => {
+					const data = JSON.parse(event.data);
+					console.log("yoo");
+					const response = data.data;
 
-		return stream;
+					if (data.type === "connection") {
+						socket.send(
+							JSON.stringify({
+								type: "walker",
+								walker: "interact",
+								response: true,
+								context: {
+									agent_id: agentId,
+									utterance: arg.content,
+									session_id: sessionId,
+									tts: false,
+									verbose: false,
+									streaming: true,
+									data: {
+										client_id: response.client_id,
+									},
+								},
+							}),
+						);
+					}
+
+					if (data.type === "chat" && response) {
+						fullContent += response.content;
+						// Check if this is the final message based on metadata
+						const isFinal = response.metadata?.finish_reason === "stop";
+
+						updateInteraction({
+							interaction: {
+								utterance: content,
+								isFinal: isFinal,
+								id: response.id,
+								response: {
+									session_id: response.session_id,
+									message_type: "TEXT",
+									message: {
+										message_type: "TEXT",
+										content: fullContent,
+									},
+								},
+							},
+						} as unknown as any);
+
+						if (isFinal) {
+							resolve(response);
+						}
+					}
+				};
+
+				controller.current?.signal.addEventListener("abort", () => {
+					socket.onmessage = null;
+					controller.current = new AbortController();
+					// TODO: send an abort message back to jivas
+
+					reject();
+				});
+			}
+		}) as Promise<Interaction>;
 	};
 
 	const { trigger: triggerWithoutStreaming, isMutating } = useSWRMutation<
@@ -1101,18 +1097,19 @@ export function ChatInput({
 			revalidate: false,
 			populateCache: (result, current) => {
 				setContent("");
-				console.log({ result });
+				console.log({ result, current });
 
 				return [
 					...(current || []).filter(
 						(i) =>
-							!i?.id?.startsWith("stream") && !!i?.response?.message?.content,
+							!(i?.id?.startsWith("stream") || i?.id === result[0]?.id) &&
+							!!i?.response?.message?.content,
 					),
 					{
 						...result[0],
-						id: result[0]?.isFinal
-							? "completed-" + (current?.length || 0)
-							: "stream",
+						// id: result[0]?.isFinal
+						// 	? "completed-" + (current?.length || 0)
+						// 	: "stream",
 					},
 				];
 			},
@@ -1120,103 +1117,15 @@ export function ChatInput({
 	);
 
 	const { trigger: triggerWithStreaming, isMutating: isStreaming } =
-		useSWRMutation<Promise<Response>>(
+		useSWRMutation<Promise<Interaction>>(
 			`/interactions/${sessionId}`,
 			interactWithStreaming,
 			{
-				async onSuccess(data) {
-					try {
-						const result = await data;
-
-						const reader = result
-							.body!.pipeThrough(new TextDecoderStream())
-							.getReader();
-
-						let fullContent = "";
-
-						// Process the stream
-						while (true) {
-							const { value, done } = await reader.read();
-							if (done) break;
-
-							// Process each chunk of data
-							const lines = value
-								.split("\n")
-								.filter((line) => line.trim() !== "");
-							for (const line of lines) {
-								try {
-									// Handle data prefixed with "data: "
-									const message = line.replace(/^data: /, "");
-
-									// Parse the message as JSON
-									const data = JSON.parse(message);
-
-									document.cookie = `tsSessionId=${data.session_id}; path=/`;
-
-									fullContent += data.content;
-
-									console.log({ fullContent });
-									// onEvent(data);
-
-									// Check if this is the final message based on metadata
-									const isFinal = data.metadata?.finish_reason === "stop";
-									console.log({ fullContent });
-
-									updateInteraction({
-										interaction: {
-											utterance: content,
-											isFinal: isFinal,
-											id: "stream",
-											response: {
-												message_type: "TEXT",
-												message: {
-													message_type: "TEXT",
-													content: fullContent,
-												},
-											},
-										},
-									} as unknown as any);
-
-									// setStreamContent({
-									// 	utterance,
-									// 	content: fullContent,
-									// 	sessionId: data.session_id,
-									// 	status: "pending",
-									// });
-
-									if (isFinal) {
-										// revalidate();
-										// queryClient.refetchQueries({ queryKey: ["messages", chatId] });
-										// setStreamContent({
-										// 	utterance,
-										// 	content: fullContent,
-										// 	sessionId: "done-" + chatId,
-										// 	status: "idle",
-										// });
-										// 	setTotalTokens(chatId, fullContent);
-										// 	return fullContent;
-									}
-								} catch (error) {
-									console.error("Error parsing SSE data:", error);
-								}
-							}
-						}
-
-						return fullContent;
-					} catch (error) {
-						console.error("SSE Error:", error);
-						throw error;
-					}
-				},
-				optimisticData: (current) =>
-					[
-						...((current as unknown as Interaction[]) || []),
-						{ id: "stream", utterance: content },
-					] as unknown as Promise<Response>,
-				// populateCache: (result, current) => {
-				// 	setContent("");
-				// 	return [...(current || []), ...result];
-				// },
+				// optimisticData: (current) =>
+				// 	[
+				// 		...((current as unknown as Interaction[]) || []),
+				// 		{ id: "stream", utterance: content },
+				// 	] as unknown as Promise<Response>,
 				revalidate: false,
 			},
 		);
@@ -1306,9 +1215,9 @@ export function ChatInput({
 			<Card.Body p="0">
 				{!mediaRecorder ? (
 					<Textarea
-						color={"var(--ts-input-color, inherit)"}
+						color={"var(--ts-input-color, black)"}
 						_placeholder={{
-							color: "var(--ts-input-placeholder-color, inherit)",
+							color: "var(--ts-input-placeholder-color, black)",
 						}}
 						placeholder="Your message here..."
 						autoFocus
