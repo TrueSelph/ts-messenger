@@ -91,7 +91,7 @@ const ReplyIndicatorContainter = chakra("div", {
 		justifyContent: "center",
 		paddingInline: "10px",
 		animation: `0.5s ease-in fadeInUp`,
-		fill: "white",
-		color: "white",
+		fill: "inherit",
+		color: "inherit",
 	},
 });

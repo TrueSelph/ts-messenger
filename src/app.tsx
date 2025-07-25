@@ -747,7 +747,9 @@ export function ChatMessage({
 						renderer={renderer as any}
 					/>
 				) : !interaction?.response?.message ? (
-					<ReplyIndicator show={true} />
+					<>
+						<ReplyIndicator show={true} />
+					</>
 				) : (
 					renderMessageContent()
 				)}
@@ -985,8 +987,13 @@ export function ChatInput({
 					: "application/json",
 			},
 		})
-			.then((res) => res.json())
-			.then((res) => res?.reports?.[0]);
+			.then((res) => {
+				return res.json();
+			})
+			.then((res) => {
+				const result = Array.isArray(res?.reports) ? res?.reports?.[0] : res;
+				return result;
+			});
 
 		document.cookie = `tsSessionId=${fullResult.response?.session_id}; path=/`;
 
@@ -1076,10 +1083,16 @@ export function ChatInput({
 			}
 		},
 		optimisticData: (current) =>
-			[...(current || []), { id: "new", utterance: content }] as any,
+			[
+				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
+				{ id: "new", utterance: content },
+			] as any,
 		populateCache: (result, current) => {
 			setContent("");
-			return [...(current || []), ...result];
+			return [
+				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
+				...result,
+			];
 		},
 		revalidate: false,
 	});
