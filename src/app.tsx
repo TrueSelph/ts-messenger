@@ -1141,11 +1141,11 @@ export function ChatInput({
 			`/interactions/${sessionId}`,
 			interactWithStreaming,
 			{
-				// optimisticData: (current) =>
-				// 	[
-				// 		...((current as unknown as Interaction[]) || []),
-				// 		{ id: "stream", utterance: content },
-				// 	] as unknown as Promise<Response>,
+				optimisticData: (current) =>
+					[
+						...((current as unknown as Interaction[]) || []),
+						{ id: "stream", utterance: content },
+					] as unknown as Promise<Interaction>,
 				revalidate: false,
 			},
 		);
