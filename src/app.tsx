@@ -129,6 +129,12 @@ export function App(props: AppProps) {
 	);
 }
 
+function getCookie(name: string) {
+	const value = `; ${document.cookie}`;
+	const parts = value.split(`; ${name}=`);
+	if (parts.length === 2) return parts?.pop()?.split(";").shift();
+}
+
 export function AppContainer(props: AppProps) {
 	const socket = new WebSocket(`${props.host}/websocket`);
 	const { headerConfig, theme, layout = "standard" } = props;
@@ -976,7 +982,7 @@ export function ChatInput({
 				agent_id: agentId,
 				utterance: arg.content,
 				instance_id: instanceId ? instanceId : undefined,
-				session_id: arg.sessionId,
+				session_id: arg.sessionId || getCookie("tsSessionId"),
 				tts: TTS,
 				verbose: true,
 				streaming: false,
@@ -1021,7 +1027,7 @@ export function ChatInput({
 								context: {
 									agent_id: agentId,
 									utterance: arg.content,
-									session_id: sessionId,
+									session_id: sessionId || getCookie("tsSessionId"),
 									tts: false,
 									verbose: false,
 									streaming: true,
@@ -1193,7 +1199,18 @@ export function ChatInput({
 		formData.append("sessionId", sessionId || "");
 		formData.append("instanceId", instanceId || "");
 
-		return fetch(`${host}/api/transcribe`, {
+		const result = await fetch(`${host}/api/transcribe`, {
+			method: "POST",
+			body: formData,
+		});
+
+		if (result.ok) return result;
+
+		formData.delete("agentId");
+		formData.delete("sessionId");
+		formData.delete("instanceId");
+
+		return fetch(`${host}/walker/stt/${agentId}`, {
 			method: "POST",
 			body: formData,
 		});
@@ -1203,12 +1220,16 @@ export function ChatInput({
 		if (!recordingBlob) return;
 
 		transcribe(recordingBlob).then(async (res) => {
-			const result = (await res.json()) as
-				| { success: false }
-				| { success: true; transcript: string };
+			const result = (await res.json()) as {
+				reports?: Array<{ transcript: string; success: boolean }>;
+				success?: boolean;
+				transcript?: string;
+			};
 
-			if (result.success) {
-				sendMessage(result.transcript);
+			const transcript = result.reports?.[0]?.transcript || result?.transcript;
+
+			if (transcript) {
+				sendMessage(transcript);
 			}
 
 			return result;
