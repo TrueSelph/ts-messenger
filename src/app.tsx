@@ -22,8 +22,6 @@ import {
 	LuClipboardCheck,
 	LuHeadphones,
 	LuHeadphoneOff,
-	// TbClipboardPlus,
-	// TbInfoSquare,
 	LuInfo,
 	LuVolume2,
 	LuVolumeOff,
@@ -190,7 +188,9 @@ function ChatContainer({
 	headerConfigParsed: HeaderConfig;
 	socket: WebSocket;
 }) {
-	const [TTS, setTTS] = useState(true);
+	const [TTS, setTTS] = useState(
+		localStorage.getItem("ts-tts-enabled") === "true" || false,
+	);
 	const [playingUrl, setPlayingUrl] = useState("");
 
 	const playAudio = useCallback((audioUrl: string) => {
@@ -210,6 +210,10 @@ function ChatContainer({
 		audio.src = audioUrl;
 		audio.play().catch((err) => console.error("Error playing audio:", err));
 	}, []);
+
+	useEffect(() => {
+		localStorage.setItem("ts-tts-enabled", TTS ? "true" : "false");
+	}, [TTS]);
 
 	const stopAudio = useCallback(() => {
 		if (audioRef.current) {
