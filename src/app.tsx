@@ -146,8 +146,8 @@ export function AppContainer(props: AppProps) {
 	) as Record<string, string>;
 
 	return (
-		<Provider enableColorScheme theme={themeParsed}>
-			<ColorModeProvider forcedTheme="dark">
+		<Provider theme={themeParsed}>
+			<ColorModeProvider>
 				{layout === "popup" ? (
 					<Popup {...props} headerConfig={headerConfigParsed}>
 						<ChatContainer
