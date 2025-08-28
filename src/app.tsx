@@ -16,7 +16,6 @@ import {
 	Table,
 	Presence,
 } from "@chakra-ui/react";
-// import { ColorModeProvider } from "./components/ui/color-mode";
 import {
 	LuClipboard,
 	LuClipboardCheck,
@@ -27,7 +26,6 @@ import {
 	LuVolumeOff,
 } from "react-icons/lu";
 
-import "./app.css";
 import { Provider } from "./components/ui/provider";
 import Markdown, { ReactRenderer } from "marked-react";
 import { ShikiHighlighter } from "react-shiki";
@@ -146,26 +144,33 @@ export function AppContainer(props: AppProps) {
 	) as Record<string, string>;
 
 	return (
-		<Provider theme={themeParsed}>
-			{/*<ColorModeProvider>*/}
-			{layout === "popup" ? (
-				<Popup {...props} headerConfig={headerConfigParsed}>
+		<Provider
+			theme={themeParsed}
+			themes={[]}
+			enableSystem={false}
+			attribute="data-ts-theme"
+		>
+			<>
+				{/*<ColorModeProvider>*/}
+				{layout === "popup" ? (
+					<Popup {...props} headerConfig={headerConfigParsed}>
+						<ChatContainer
+							socket={socket}
+							themeParsed={themeParsed}
+							headerConfigParsed={headerConfigParsed}
+							{...props}
+						/>
+					</Popup>
+				) : (
 					<ChatContainer
 						socket={socket}
 						themeParsed={themeParsed}
 						headerConfigParsed={headerConfigParsed}
 						{...props}
 					/>
-				</Popup>
-			) : (
-				<ChatContainer
-					socket={socket}
-					themeParsed={themeParsed}
-					headerConfigParsed={headerConfigParsed}
-					{...props}
-				/>
-			)}
-			{/*</ColorModeProvider>*/}
+				)}
+				{/*</ColorModeProvider>*/}
+			</>
 		</Provider>
 	);
 }
