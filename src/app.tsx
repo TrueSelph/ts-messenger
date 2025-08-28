@@ -146,6 +146,7 @@ export function AppContainer(props: AppProps) {
 	return (
 		<Provider
 			theme={themeParsed}
+			forcedTheme="light"
 			themes={[]}
 			enableSystem={false}
 			attribute="data-ts-theme"
