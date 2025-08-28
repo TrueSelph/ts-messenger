@@ -16,7 +16,7 @@ import {
 	Table,
 	Presence,
 } from "@chakra-ui/react";
-import { ColorModeProvider } from "./components/ui/color-mode";
+// import { ColorModeProvider } from "./components/ui/color-mode";
 import {
 	LuClipboard,
 	LuClipboardCheck,
@@ -147,25 +147,25 @@ export function AppContainer(props: AppProps) {
 
 	return (
 		<Provider theme={themeParsed}>
-			<ColorModeProvider>
-				{layout === "popup" ? (
-					<Popup {...props} headerConfig={headerConfigParsed}>
-						<ChatContainer
-							socket={socket}
-							themeParsed={themeParsed}
-							headerConfigParsed={headerConfigParsed}
-							{...props}
-						/>
-					</Popup>
-				) : (
+			{/*<ColorModeProvider>*/}
+			{layout === "popup" ? (
+				<Popup {...props} headerConfig={headerConfigParsed}>
 					<ChatContainer
 						socket={socket}
 						themeParsed={themeParsed}
 						headerConfigParsed={headerConfigParsed}
 						{...props}
 					/>
-				)}
-			</ColorModeProvider>
+				</Popup>
+			) : (
+				<ChatContainer
+					socket={socket}
+					themeParsed={themeParsed}
+					headerConfigParsed={headerConfigParsed}
+					{...props}
+				/>
+			)}
+			{/*</ColorModeProvider>*/}
 		</Provider>
 	);
 }
