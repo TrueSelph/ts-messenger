@@ -149,7 +149,7 @@ export function AppContainer(props: AppProps) {
 			forcedTheme="light"
 			themes={[]}
 			enableSystem={false}
-			attribute="data-ts-theme"
+			attribute="class"
 		>
 			<>
 				{/*<ColorModeProvider>*/}
