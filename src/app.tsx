@@ -188,6 +188,12 @@ function ChatContainer({
 	headerConfigParsed: HeaderConfig;
 	socket: WebSocket;
 }) {
+	document
+		.getElementsByTagName("html")?.[0]
+		.setAttribute("data-theme", "light");
+	// @ts-ignore
+	document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
+
 	const [TTS, setTTS] = useState(
 		localStorage.getItem("ts-tts-enabled") === "true" || false,
 	);

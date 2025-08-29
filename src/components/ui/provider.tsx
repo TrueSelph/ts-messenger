@@ -13,6 +13,11 @@ import { system } from "./system";
 export function Provider(
 	props: Omit<ChakraProviderProps, "value"> & { theme: Record<string, string> },
 ) {
+	document
+		.getElementsByTagName("html")?.[0]
+		.setAttribute("data-theme", "light");
+	// @ts-ignore
+	document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
 	const [shadow, setShadow] = useState<HTMLElement | null>(null);
 	const [cache, setCache] = useState<ReturnType<typeof createCache> | null>(
 		null,
