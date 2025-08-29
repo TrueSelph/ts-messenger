@@ -150,6 +150,7 @@ export function AppContainer(props: AppProps) {
 			themes={[]}
 			enableSystem={false}
 			attribute="class"
+			enableColorScheme={false}
 		>
 			<>
 				{/*<ColorModeProvider>*/}
@@ -1011,7 +1012,11 @@ export function ChatInput({
 				return result;
 			});
 
-		document.cookie = `tsSessionId=${fullResult.response?.session_id}; path=/`;
+		if (!getCookie("tsSessionId")) {
+			document.cookie = `tsSessionId=${fullResult.response?.session_id}; path=/`;
+		}
+
+		window.dispatchEvent(new CustomEvent("tsmsave"));
 
 		return [fullResult];
 	};
