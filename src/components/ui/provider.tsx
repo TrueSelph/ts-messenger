@@ -1,13 +1,17 @@
-import { ChakraProvider, EnvironmentProvider } from "@chakra-ui/react";
+import {
+	ChakraProvider,
+	EnvironmentProvider,
+	type ChakraProviderProps,
+} from "@chakra-ui/react";
 import createCache from "@emotion/cache";
 import { CacheProvider } from "@emotion/react";
-import { ThemeProvider, type ThemeProviderProps } from "next-themes";
+// import { ThemeProvider, type ThemeProviderProps } from "next-themes";
 import { useEffect, useState } from "react";
 import root from "react-shadow/emotion";
 import { system } from "./system";
 
 export function Provider(
-	props: ThemeProviderProps & { theme: Record<string, string> },
+	props: Omit<ChakraProviderProps, "value"> & { theme: Record<string, string> },
 ) {
 	const [shadow, setShadow] = useState<HTMLElement | null>(null);
 	const [cache, setCache] = useState<ReturnType<typeof createCache> | null>(
@@ -39,8 +43,8 @@ export function Provider(
 			{shadow && cache && (
 				<EnvironmentProvider value={() => shadow.shadowRoot ?? document}>
 					<CacheProvider value={cache}>
-						<ChakraProvider value={system}>
-							<ThemeProvider {...props} />
+						<ChakraProvider {...props} value={system}>
+							{/*<ThemeProvider  />*/}
 						</ChakraProvider>
 					</CacheProvider>
 				</EnvironmentProvider>
