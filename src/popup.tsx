@@ -6,6 +6,7 @@ import {
 	Drawer,
 	Text,
 	Portal,
+	Presence,
 } from "@chakra-ui/react";
 import { useState } from "preact/hooks";
 import { avatarUrl, type AppProps, type HeaderConfig } from "./app";
@@ -16,9 +17,31 @@ export function Popup({
 	headerConfig,
 }: { children: React.ReactNode; headerConfig?: HeaderConfig } & AppProps) {
 	const [isOpen, setIsOpen] = useState(false);
+	const [showHint, setShowHint] = useState(false);
 
 	return (
 		<div>
+			<Presence
+				present={showHint}
+				animationName={{ _open: "fade-in", _closed: "fade-out" }}
+				animationDuration="moderate"
+			>
+				<Text
+					fontWeight={800}
+					pos="absolute"
+					bottom={120}
+					right={7}
+					color="gray.600"
+					fontSize="xs"
+					textAlign="center"
+				>
+					Chat with{" "}
+					<Text asChild>
+						<a href="https://trueselph.com">Agent</a>
+					</Text>{" "}
+				</Text>
+			</Presence>
+
 			<Text
 				fontWeight={500}
 				pos="fixed"
@@ -42,7 +65,14 @@ export function Popup({
 				size="xl"
 			>
 				<Drawer.Trigger asChild>
-					<TriggerButton>
+					<TriggerButton
+						onMouseEnter={() => {
+							setShowHint(true);
+						}}
+						onMouseLeave={() => {
+							setShowHint(false);
+						}}
+					>
 						<Avatar.Root size="xl" bg="transparent" w="100%" h="100%">
 							<Avatar.Fallback />
 							<Avatar.Image
@@ -162,7 +192,7 @@ export function Popup({
 const TriggerButton = chakra("button", {
 	base: {
 		// background: "red",
-		// shadow: "2xl",
+		shadow: "2xl",
 		width: "60px",
 		cursor: "pointer",
 		height: "60px",
