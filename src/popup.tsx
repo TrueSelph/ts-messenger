@@ -6,7 +6,6 @@ import {
 	Drawer,
 	Text,
 	Portal,
-	Presence,
 } from "@chakra-ui/react";
 import { useState } from "preact/hooks";
 import { avatarUrl, type AppProps, type HeaderConfig } from "./app";
@@ -17,31 +16,9 @@ export function Popup({
 	headerConfig,
 }: { children: React.ReactNode; headerConfig?: HeaderConfig } & AppProps) {
 	const [isOpen, setIsOpen] = useState(false);
-	const [showHint, setShowHint] = useState(false);
 
 	return (
 		<div>
-			<Presence
-				present={showHint}
-				animationName={{ _open: "fade-in", _closed: "fade-out" }}
-				animationDuration="moderate"
-			>
-				<Text
-					fontWeight={800}
-					pos="absolute"
-					bottom={120}
-					right={7}
-					color="gray.600"
-					fontSize="xs"
-					textAlign="center"
-				>
-					Chat with{" "}
-					<Text asChild>
-						<a href="https://trueselph.com">Agent</a>
-					</Text>{" "}
-				</Text>
-			</Presence>
-
 			<Text
 				fontWeight={500}
 				pos="fixed"
@@ -51,11 +28,10 @@ export function Popup({
 				fontSize="xs"
 				textAlign="center"
 			>
-				powered by{" "}
+				Chat with{" "}
 				<Text asChild>
-					<a href="https://trueselph.com">TrueSelph</a>
+					<span>{agentName}</span>
 				</Text>{" "}
-				&copy;
 			</Text>
 
 			<Drawer.Root
@@ -65,14 +41,7 @@ export function Popup({
 				size="xl"
 			>
 				<Drawer.Trigger asChild>
-					<TriggerButton
-						onMouseEnter={() => {
-							setShowHint(true);
-						}}
-						onMouseLeave={() => {
-							setShowHint(false);
-						}}
-					>
+					<TriggerButton>
 						<Avatar.Root size="xl" bg="transparent" w="100%" h="100%">
 							<Avatar.Fallback />
 							<Avatar.Image
@@ -85,10 +54,18 @@ export function Popup({
 
 				<Portal>
 					{/* <Drawer.Backdrop /> */}
-					<Box pos="fixed" right="0" bottom="0" w="500px" zIndex={999}>
+					<Box
+						pos="fixed"
+						right="0"
+						bottom="0"
+						w="500px"
+						maxW={"100vw"}
+						zIndex={999}
+					>
 						<Drawer.Content
-							h="80vh"
+							h={{ base: "100vh", md: "80vh" }}
 							w="500px"
+							maxW={"100vw"}
 							background="var(--ts-chat-popup-bg, transparent)"
 							backdropFilter={"blur(220px)"}
 						>
@@ -100,8 +77,25 @@ export function Popup({
 										src={headerConfig?.avatarUrl || avatarUrl}
 									/>
 								</Avatar.Root>
-								<Drawer.Title color={"var(--ts-chat-fg, black)"}>
-									{agentName}
+								<Drawer.Title
+									color={"var(--ts-chat-fg, black)"}
+									position="relative"
+								>
+									{agentName || "Agent"}
+									<Text
+										bottom={"-20px"}
+										position={"absolute"}
+										fontWeight={500}
+										color="gray.600"
+										fontSize="xs"
+										textAlign="center"
+									>
+										powered by{" "}
+										<Text asChild>
+											<a href="https://trueselph.com">TrueSelph</a>
+										</Text>{" "}
+										&copy;
+									</Text>
 								</Drawer.Title>
 							</Drawer.Header>
 							<Drawer.Body>{children}</Drawer.Body>

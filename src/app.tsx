@@ -900,7 +900,7 @@ function ChatHeader({
 						size="lg"
 						color={"var(--ts-chat-fg, black)"}
 					>
-						{agentName || "Agent"}
+						{agentName || "Agent"}yooo
 					</Heading>
 					<Text
 						fontWeight={500}
