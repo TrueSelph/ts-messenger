@@ -19,7 +19,7 @@ export function Popup({
 
 	return (
 		<div>
-			<Text
+			{/*<Text
 				fontWeight={500}
 				pos="fixed"
 				bottom={4}
@@ -29,10 +29,10 @@ export function Popup({
 				textAlign="center"
 			>
 				Chat with{" "}
-				<Text asChild>
+				<Text asChild fontWeight="bold">
 					<span>{agentName}</span>
 				</Text>{" "}
-			</Text>
+			</Text>*/}
 
 			<Drawer.Root
 				closeOnEscape
@@ -42,13 +42,20 @@ export function Popup({
 			>
 				<Drawer.Trigger asChild>
 					<TriggerButton>
-						<Avatar.Root size="xl" bg="transparent" w="100%" h="100%">
-							<Avatar.Fallback />
-							<Avatar.Image
-								rounded="sm"
-								src={headerConfig?.avatarUrl || avatarUrl}
-							/>
-						</Avatar.Root>
+						<Box className="avatar-container">
+							<Avatar.Root size="xl" bg="transparent" w="60px" h="60px">
+								<Avatar.Fallback />
+								<Avatar.Image
+									rounded="sm"
+									src={headerConfig?.avatarUrl || avatarUrl}
+								/>
+							</Avatar.Root>
+						</Box>
+						<Box className="chat-text">
+							<Text fontSize="sm" fontWeight="medium" color="white">
+								Chat with {agentName}
+							</Text>
+						</Box>
 					</TriggerButton>
 				</Drawer.Trigger>
 
@@ -195,12 +202,43 @@ const TriggerButton = chakra("button", {
 		overflow: "hidden",
 		position: "fixed",
 		zIndex: 998,
-		right: 10,
-		bottom: 10,
+		right: 4,
+		bottom: 4,
 		animation: `pulsez 1.5s infinite`,
 		// bg: "#000000",
 		boxShadow:
 			"rgba(0, 0, 0, 0.44) 7px 6px 9px 0px, rgba(0, 0, 0, 0.34) 0px 2px 32px",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "flex-end",
+		paddingLeft: 0,
+		paddingRight: 0,
+		transition: "all 0.3s ease",
+		backgroundColor: "rgba(0, 0, 0, 0.8)",
+		"& .avatar-container": {
+			minWidth: "60px",
+			display: "flex",
+			alignItems: "center",
+			justifyContent: "center",
+		},
+		"& .chat-text": {
+			width: 0,
+			opacity: 0,
+			overflow: "hidden",
+			whiteSpace: "nowrap",
+			paddingLeft: 0,
+			paddingRight: 0,
+			transition: "all 0.3s ease",
+		},
+		"&:hover": {
+			width: "200px",
+			"& .chat-text": {
+				width: "140px",
+				opacity: 1,
+				paddingLeft: "8px",
+				paddingRight: "12px",
+			},
+		},
 	},
 	variants: {},
 });
