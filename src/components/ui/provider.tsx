@@ -37,6 +37,7 @@ export function Provider(
 			ref={setShadow}
 			style={{
 				height: "100%",
+				position: "absolute",
 				...props.theme,
 				"--chakra-colors-bg": "var(--ts-chat-bg, var(--chakra-colors-bg))",
 				"--chakra-colors-fg":
