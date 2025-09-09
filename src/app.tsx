@@ -1285,7 +1285,9 @@ export function ChatInput({
 						onKeyDown={async (event) => {
 							if (event.code === "Enter" && !event.shiftKey) {
 								event.preventDefault();
-								sendMessage();
+								if (content.trim().length > 0) {
+									sendMessage();
+								}
 							}
 						}}
 					/>
