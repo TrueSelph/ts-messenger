@@ -144,7 +144,7 @@ export function AppContainer(props: AppProps) {
 	) as Record<string, string>;
 
 	return (
-		<Provider theme={themeParsed}>
+		<Provider theme={themeParsed} layout={layout}>
 			<>
 				{/*<ColorModeProvider>*/}
 				{layout === "popup" ? (

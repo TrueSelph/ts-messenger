@@ -11,7 +11,10 @@ import root from "react-shadow/emotion";
 import { system } from "./system";
 
 export function Provider(
-	props: Omit<ChakraProviderProps, "value"> & { theme: Record<string, string> },
+	props: Omit<ChakraProviderProps, "value"> & {
+		theme: Record<string, string>;
+		layout: "popup" | "standard";
+	},
 ) {
 	document
 		.getElementsByTagName("html")?.[0]
@@ -37,7 +40,7 @@ export function Provider(
 			ref={setShadow}
 			style={{
 				height: "100%",
-				position: "absolute",
+				position: props.layout === "popup" ? "absolute" : undefined,
 				...props.theme,
 				"--chakra-colors-bg": "var(--ts-chat-bg, var(--chakra-colors-bg))",
 				"--chakra-colors-fg":
