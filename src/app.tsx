@@ -24,6 +24,7 @@ import {
 	LuInfo,
 	LuVolume2,
 	LuVolumeOff,
+	LuArrowUpFromLine,
 } from "react-icons/lu";
 
 import { Provider } from "./components/ui/provider";
@@ -523,6 +524,20 @@ export function Messages({
 					>
 						{JSON.stringify(debuggedInteraction, null, 2)}
 					</ShikiHighlighter>
+					<Flex justify="end">
+						<IconButton
+							size="2xs"
+							variant="ghost"
+							bg="var(--ts-icon-btn-bg)"
+							color="var(--ts-icon-btn-color)"
+							_hover={{
+								background: "var(--ts-icon-btn-hover-bg)",
+							}}
+							onClick={() => setDebuggedInteraction(null)}
+						>
+							<LuArrowUpFromLine />
+						</IconButton>
+					</Flex>
 				</Box>
 			</Presence>
 		</Stack>
