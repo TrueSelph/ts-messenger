@@ -15,6 +15,7 @@ import {
 	useClipboard,
 	Table,
 	Presence,
+	Group,
 } from "@chakra-ui/react";
 import {
 	LuClipboard,
@@ -25,6 +26,9 @@ import {
 	LuVolume2,
 	LuVolumeOff,
 	LuArrowUpFromLine,
+	LuExpand,
+	LuShrink,
+	LuKeyboard,
 } from "react-icons/lu";
 
 import { Provider } from "./components/ui/provider";
@@ -54,10 +58,10 @@ import {
 } from "./types";
 import useSWR, { SWRConfig } from "swr";
 import useSWRMutation from "swr/mutation";
-import type { ComponentChild } from "preact";
+import type { ComponentChild, RefObject } from "preact";
 import { ReplyIndicator } from "./components/ReplyIndicator";
 import { Popup } from "./popup";
-
+import { useTranscribe } from "./useTranscribe";
 export type HeaderConfig = {
 	showAvatar?: boolean;
 	avatarUrl?: string;
@@ -144,30 +148,36 @@ export function AppContainer(props: AppProps) {
 		typeof theme === "string" ? JSON.parse(theme) : theme
 	) as Record<string, string>;
 
+	const fullScreenRef = useRef<HTMLDivElement>(null);
+
 	return (
-		<Provider theme={themeParsed} layout={layout}>
-			<>
-				{/*<ColorModeProvider>*/}
-				{layout === "popup" ? (
-					<Popup {...props} headerConfig={headerConfigParsed}>
+		<div ref={fullScreenRef} style={{ background: "var(--ts-chat-fg, white)" }}>
+			<Provider theme={themeParsed} layout={layout}>
+				<>
+					{/*<ColorModeProvider>*/}
+					{layout === "popup" ? (
+						<Popup {...props} headerConfig={headerConfigParsed}>
+							<ChatContainer
+								socket={socket}
+								themeParsed={themeParsed}
+								headerConfigParsed={headerConfigParsed}
+								fullScreenRef={fullScreenRef}
+								{...props}
+							/>
+						</Popup>
+					) : (
 						<ChatContainer
 							socket={socket}
 							themeParsed={themeParsed}
+							fullScreenRef={fullScreenRef}
 							headerConfigParsed={headerConfigParsed}
 							{...props}
 						/>
-					</Popup>
-				) : (
-					<ChatContainer
-						socket={socket}
-						themeParsed={themeParsed}
-						headerConfigParsed={headerConfigParsed}
-						{...props}
-					/>
-				)}
-				{/*</ColorModeProvider>*/}
-			</>
-		</Provider>
+					)}
+					{/*</ColorModeProvider>*/}
+				</>
+			</Provider>
+		</div>
 	);
 }
 
@@ -184,11 +194,15 @@ function ChatContainer({
 	instanceId,
 	withDebug,
 	socket,
+	fullScreenRef,
 }: AppProps & {
 	themeParsed: Record<string, string>;
 	headerConfigParsed: HeaderConfig;
 	socket: WebSocket;
+	fullScreenRef: RefObject<HTMLDivElement>;
 }) {
+	const [expanded, setExpanded] = useState(false);
+
 	document
 		.getElementsByTagName("html")?.[0]
 		.setAttribute("data-theme", "light");
@@ -317,12 +331,16 @@ function ChatContainer({
 			</style>
 			<Stack
 				py="4"
+				px={expanded ? { base: "4", md: "8" } : undefined}
 				alignItems={data?.length ? "flex-start" : "center"}
 				justifyContent={data?.length ? undefined : "center"}
 				h="100%"
 			>
 				{(headerConfigParsed?.show || !data?.length) && (
 					<ChatHeader
+						expanded={expanded}
+						setExpanded={setExpanded}
+						fullScreenRef={fullScreenRef}
 						playingUrl={playingUrl}
 						TTS={TTS}
 						setTTS={setTTS}
@@ -358,6 +376,7 @@ function ChatContainer({
 						</Text>
 					)}
 					<ChatInput
+						defaultMode="voice-first"
 						socket={socket}
 						playAudio={playAudio}
 						host={host}
@@ -373,6 +392,455 @@ function ChatContainer({
 			</Stack>
 		</>
 	);
+}
+
+export function VoiceChatInput({
+	stopAudio,
+	setDefaultMode,
+	agentId,
+	host,
+	instanceId,
+	sessionId,
+	setTranscribeContent,
+	startRecording,
+	stopRecording,
+	audioData,
+	isRecording,
+	recordingBlob,
+}: {
+	stopAudio: () => void;
+	// sendMessage: (message: string) => void;
+	setTranscribeContent: (content: string) => void;
+	agentId: string;
+	sessionId: string;
+	instanceId: string;
+	host: string;
+	setDefaultMode: React.Dispatch<SetStateAction<"voice-first" | "text-first">>;
+	stopRecording: () => void;
+	startRecording: () => void;
+	recordingBlob: Blob | null;
+	isRecording: boolean;
+	audioData: Uint8Array<ArrayBufferLike> | null;
+}) {
+	// const {
+	// 	isRecordingInProgress: isRecording,
+	// 	startRecording,
+	// 	stopRecording,
+	// 	audioData,
+	// 	recordedBlob: recordingBlob,
+	// } = recorderControls;
+
+	const handleToggleRecording = () => {
+		stopAudio();
+		if (isRecording) {
+			stopRecording();
+		} else {
+			startRecording();
+		}
+	};
+
+	const { transcribe } = useTranscribe({
+		agentId,
+		sessionId,
+		instanceId,
+		host: host as string,
+	});
+
+	useEffect(() => {
+		if (!recordingBlob) return;
+
+		transcribe(recordingBlob).then(async (res) => {
+			const result = (await res.json()) as {
+				reports?: Array<{ transcript: string; success: boolean }>;
+				success?: boolean;
+				transcript?: string;
+			};
+
+			const transcript = result.reports?.[0]?.transcript || result?.transcript;
+
+			if (transcript) {
+				setTranscribeContent(transcript);
+			}
+
+			return result;
+		});
+	}, [recordingBlob]);
+
+	return (
+		<Group alignSelf="center" w="100%" justifyContent="center">
+			<IconButton
+				rounded="full"
+				size="xs"
+				mr="3"
+				onClick={() => {
+					setDefaultMode("text-first");
+				}}
+			>
+				<LuKeyboard />
+			</IconButton>
+			<Box position="relative">
+				<FluidAudioVisualizer audioData={audioData} isRecording={isRecording} />
+				<IconButton
+					variant={isRecording ? "solid" : "subtle"}
+					colorScheme={isRecording ? "red" : "blue"}
+					rounded="full"
+					size="2xl"
+					onClick={handleToggleRecording}
+					position="relative"
+					zIndex={2}
+					transition="all 0.2s ease"
+					_hover={{
+						transform: "scale(1.05)",
+					}}
+					_active={{
+						transform: "scale(0.95)",
+					}}
+				>
+					{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
+				</IconButton>
+			</Box>
+		</Group>
+	);
+}
+
+interface FluidAudioVisualizerProps {
+	audioData: Uint8Array | null;
+	isRecording: boolean;
+}
+
+const FluidAudioVisualizer = ({
+	audioData,
+	isRecording,
+}: FluidAudioVisualizerProps) => {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const animationRef = useRef<number | null>(null);
+	const noiseOffsetRef = useRef(0);
+	const audioHistoryRef = useRef<number[]>(new Array(60).fill(0));
+
+	useEffect(() => {
+		if (!canvasRef.current) return;
+
+		const canvas = canvasRef.current;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+
+		// Set canvas dimensions with device pixel ratio
+		const updateCanvasSize = () => {
+			const rect = canvas.getBoundingClientRect();
+			const dpr = window.devicePixelRatio || 1;
+
+			canvas.width = rect.width * dpr;
+			canvas.height = rect.height * dpr;
+
+			ctx.scale(dpr, dpr);
+			canvas.style.width = `${rect.width}px`;
+			canvas.style.height = `${rect.height}px`;
+		};
+
+		updateCanvasSize();
+		window.addEventListener("resize", updateCanvasSize);
+
+		let time = 0;
+
+		const animate = () => {
+			animationRef.current = requestAnimationFrame(animate);
+			time += 0.016; // ~60fps timing
+			noiseOffsetRef.current += 0.01;
+
+			// Clear canvas
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+			const size = Math.min(canvas.clientWidth, canvas.clientHeight);
+			const centerX = canvas.clientWidth / 2;
+			const centerY = canvas.clientHeight / 2;
+
+			if (isRecording) {
+				const audioLevel = getAudioLevel(audioData);
+				updateAudioHistory(audioLevel);
+				drawFluidVisualization(ctx, centerX, centerY, size, time, audioLevel);
+			}
+		};
+
+		animate();
+
+		return () => {
+			if (animationRef.current) {
+				cancelAnimationFrame(animationRef.current);
+			}
+			window.removeEventListener("resize", updateCanvasSize);
+		};
+	}, [audioData, isRecording]);
+
+	const getAudioLevel = (audioData: Uint8Array | null): number => {
+		if (!audioData || audioData.length === 0) return 0;
+
+		// Calculate RMS (Root Mean Square) for more sensitive audio detection
+		let sum = 0;
+		for (let i = 0; i < audioData.length; i++) {
+			const normalizedValue = (audioData[i] - 128) / 128; // Center around 0
+			sum += normalizedValue * normalizedValue;
+		}
+		const rms = Math.sqrt(sum / audioData.length);
+
+		// Apply exponential scaling for higher sensitivity
+		return Math.pow(Math.min(rms * 3, 1), 0.5);
+	};
+
+	const updateAudioHistory = (currentLevel: number) => {
+		audioHistoryRef.current.shift();
+		audioHistoryRef.current.push(currentLevel);
+	};
+
+	const drawFluidVisualization = (
+		ctx: CanvasRenderingContext2D,
+		centerX: number,
+		centerY: number,
+		size: number,
+		time: number,
+		audioLevel: number,
+	) => {
+		const baseRadius = size * 0.28;
+		const maxExpansion = size * 0.25;
+
+		// Create multiple fluid layers with different characteristics
+		drawFluidLayer(
+			ctx,
+			centerX,
+			centerY,
+			baseRadius,
+			maxExpansion,
+			time,
+			audioLevel,
+			0,
+			"primary",
+		);
+		drawFluidLayer(
+			ctx,
+			centerX,
+			centerY,
+			baseRadius * 0.85,
+			maxExpansion * 0.7,
+			time * 1.3,
+			audioLevel,
+			Math.PI / 6,
+			"secondary",
+		);
+		drawFluidLayer(
+			ctx,
+			centerX,
+			centerY,
+			baseRadius * 0.7,
+			maxExpansion * 0.5,
+			time * 0.8,
+			audioLevel,
+			Math.PI / 3,
+			"tertiary",
+		);
+
+		// Add inner core
+		drawInnerCore(ctx, centerX, centerY, baseRadius * 0.4, audioLevel, time);
+	};
+
+	const drawFluidLayer = (
+		ctx: CanvasRenderingContext2D,
+		centerX: number,
+		centerY: number,
+		baseRadius: number,
+		maxExpansion: number,
+		time: number,
+		audioLevel: number,
+		phaseOffset: number,
+		layer: "primary" | "secondary" | "tertiary",
+	) => {
+		const points: { x: number; y: number }[] = [];
+		const numPoints = 128; // Higher resolution for smoother curves
+
+		// Get average audio level from history for smoother transitions
+		const avgAudioLevel =
+			audioHistoryRef.current.reduce((a, b) => a + b, 0) /
+			audioHistoryRef.current.length;
+		const smoothAudioLevel = audioLevel * 0.3 + avgAudioLevel * 0.7;
+
+		// Generate fluid points using multiple noise octaves
+		for (let i = 0; i < numPoints; i++) {
+			const angle = (i / numPoints) * Math.PI * 2 + phaseOffset;
+
+			// Multiple octaves of noise for organic movement
+			const noise1 = simplex2D(
+				Math.cos(angle) * 0.5 + time * 0.8 + noiseOffsetRef.current,
+				Math.sin(angle) * 0.5 + time * 0.8,
+			);
+			const noise2 =
+				simplex2D(
+					Math.cos(angle) * 1.2 + time * 1.2 + noiseOffsetRef.current * 1.5,
+					Math.sin(angle) * 1.2 + time * 1.2,
+				) * 0.5;
+			const noise3 =
+				simplex2D(
+					Math.cos(angle) * 2.1 + time * 0.6 + noiseOffsetRef.current * 0.8,
+					Math.sin(angle) * 2.1 + time * 0.6,
+				) * 0.25;
+
+			const combinedNoise = noise1 + noise2 + noise3;
+
+			// Audio-reactive radius with high sensitivity
+			const audioExpansion =
+				smoothAudioLevel * maxExpansion * (1.5 + combinedNoise * 0.8);
+			const finalRadius = baseRadius + audioExpansion;
+
+			// Add micro-trembles based on high-frequency audio
+			const trembleIntensity = audioLevel * 8;
+			const trembleX = simplex2D(angle * 8 + time * 15, 0) * trembleIntensity;
+			const trembleY = simplex2D(angle * 8 + time * 15, 100) * trembleIntensity;
+
+			const x = centerX + Math.cos(angle) * finalRadius + trembleX;
+			const y = centerY + Math.sin(angle) * finalRadius + trembleY;
+
+			points.push({ x, y });
+		}
+
+		// Draw smooth curves using bezier paths
+		ctx.beginPath();
+		ctx.moveTo(points[0].x, points[0].y);
+
+		for (let i = 0; i < points.length; i++) {
+			const current = points[i];
+			const next = points[(i + 1) % points.length];
+			const controlPoint1X = current.x + (next.x - current.x) * 0.4;
+			const controlPoint1Y = current.y + (next.y - current.y) * 0.4;
+			const controlPoint2X = next.x - (next.x - current.x) * 0.4;
+			const controlPoint2Y = next.y - (next.y - current.y) * 0.4;
+
+			ctx.bezierCurveTo(
+				controlPoint1X,
+				controlPoint1Y,
+				controlPoint2X,
+				controlPoint2Y,
+				next.x,
+				next.y,
+			);
+		}
+
+		ctx.closePath();
+
+		// Apply layer-specific styling
+		const alpha = getLayerAlpha(layer, smoothAudioLevel);
+		const colors = getLayerColors(layer);
+
+		// Create radial gradient for oil-like appearance
+		const gradient = ctx.createRadialGradient(
+			centerX,
+			centerY,
+			0,
+			centerX,
+			centerY,
+			baseRadius + maxExpansion,
+		);
+		gradient.addColorStop(0, colors.center);
+		gradient.addColorStop(0.6, colors.mid);
+		gradient.addColorStop(1, colors.outer);
+
+		ctx.fillStyle = gradient;
+		ctx.globalAlpha = alpha;
+		ctx.fill();
+
+		// Add subtle stroke for definition
+		ctx.strokeStyle = colors.stroke;
+		ctx.lineWidth = 0.5;
+		ctx.globalAlpha = alpha * 0.6;
+		ctx.stroke();
+
+		ctx.globalAlpha = 1;
+	};
+
+	const drawInnerCore = (
+		ctx: CanvasRenderingContext2D,
+		centerX: number,
+		centerY: number,
+		radius: number,
+		audioLevel: number,
+		time: number,
+	) => {
+		// Pulsing core that reacts to audio
+		const pulseRadius =
+			radius * (1 + audioLevel * 0.5 + Math.sin(time * 8) * 0.1);
+
+		const gradient = ctx.createRadialGradient(
+			centerX,
+			centerY,
+			0,
+			centerX,
+			centerY,
+			pulseRadius,
+		);
+		gradient.addColorStop(0, `rgba(139, 92, 246, ${0.8 + audioLevel * 0.2})`);
+		gradient.addColorStop(0.5, `rgba(99, 102, 241, ${0.4 + audioLevel * 0.3})`);
+		gradient.addColorStop(1, "rgba(139, 92, 246, 0)");
+
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+		ctx.fillStyle = gradient;
+		ctx.fill();
+	};
+
+	const getLayerAlpha = (layer: string, audioLevel: number): number => {
+		const baseAlpha =
+			{
+				primary: 0.7,
+				secondary: 0.5,
+				tertiary: 0.3,
+			}[layer] || 0.5;
+
+		return Math.min(1, baseAlpha + audioLevel * 0.4);
+	};
+
+	const getLayerColors = (layer: string) => {
+		const colorSets = {
+			primary: {
+				center: "rgba(139, 92, 246, 0.9)",
+				mid: "rgba(99, 102, 241, 0.6)",
+				outer: "rgba(67, 56, 202, 0.1)",
+				stroke: "rgba(139, 92, 246, 0.3)",
+			},
+			secondary: {
+				center: "rgba(124, 58, 237, 0.7)",
+				mid: "rgba(139, 92, 246, 0.4)",
+				outer: "rgba(99, 102, 241, 0.1)",
+				stroke: "rgba(124, 58, 237, 0.2)",
+			},
+			tertiary: {
+				center: "rgba(109, 40, 217, 0.5)",
+				mid: "rgba(124, 58, 237, 0.3)",
+				outer: "rgba(139, 92, 246, 0.1)",
+				stroke: "rgba(109, 40, 217, 0.15)",
+			},
+		};
+
+		// @ts-ignore
+		return colorSets[layer] || colorSets.primary;
+	};
+
+	return (
+		<chakra.canvas
+			ref={canvasRef}
+			position="absolute"
+			top="50%"
+			left="50%"
+			width="140px"
+			height="140px"
+			transform="translate(-50%, -50%)"
+			zIndex={1}
+			pointerEvents="none"
+			filter="blur(0.5px)" // Slight blur for oil-like softness
+		/>
+	);
+};
+
+// Simplified 2D simplex noise function
+function simplex2D(x: number, y: number): number {
+	// Simplified noise implementation - you might want to use a proper library like simplex-noise
+	const sin = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+	return (sin - Math.floor(sin)) * 2 - 1;
 }
 
 function MediaMessage({ message }: { message: ResponseMessage }) {
@@ -862,6 +1330,9 @@ function ChatHeader({
 	setTTS,
 	stopAudio,
 	agentName,
+	fullScreenRef,
+	expanded,
+	setExpanded,
 }: {
 	playingUrl: string;
 	headerConfig: HeaderConfig;
@@ -869,9 +1340,62 @@ function ChatHeader({
 	setTTS: React.Dispatch<SetStateAction<boolean>>;
 	stopAudio: () => void;
 	agentName: string;
+	fullScreenRef: RefObject<HTMLDivElement>;
+	expanded: boolean;
+	setExpanded: React.Dispatch<SetStateAction<boolean>>;
 }) {
+	useEffect(() => {
+		document.addEventListener("fullscreenchange", () => {
+			if (document.fullscreenElement) {
+				setExpanded(true);
+			} else {
+				setExpanded(false);
+			}
+		});
+	}, []);
+
+	function openFullscreen(ref: RefObject<HTMLDivElement>) {
+		if (document.fullscreenElement) {
+			document.exitFullscreen();
+			return;
+		}
+
+		setExpanded(true);
+		const elem = ref?.current as HTMLDivElement;
+		if (!elem) return;
+		if (elem.requestFullscreen) {
+			elem.requestFullscreen();
+			// @ts-ignore
+		} else if (elem!.webkitRequestFullscreen) {
+			/* Safari */
+			// @ts-ignore
+			elem!.webkitRequestFullscreen();
+			// @ts-ignore
+		} else if (elem!.msRequestFullscreen) {
+			/* IE11 */
+			// @ts-ignore
+			elem!.msRequestFullscreen();
+		}
+	}
+
 	return (
 		<>
+			<Group justify="end" alignSelf="end">
+				<IconButton
+					colorPalette={"gray"}
+					bg={{ _hover: "gray.100", base: "gray.200" }}
+					opacity={0.8}
+					color="gray.700"
+					variant="solid"
+					rounded="full"
+					transform="scale(0.65)"
+					onClick={() => {
+						openFullscreen(fullScreenRef);
+					}}
+				>
+					{expanded ? <LuShrink /> : <LuExpand />}
+				</IconButton>
+			</Group>
 			<Stack w="100%" py="12" flex="0 0 auto">
 				{headerConfig.showAvatar ? (
 					<Avatar.Root
@@ -971,7 +1495,9 @@ export function ChatInput({
 	stopAudio,
 	setTTS,
 	socket,
+	defaultMode = "text-first",
 }: {
+	defaultMode: "text-first" | "voice-first";
 	sessionId: string;
 	agentId: string;
 	streaming: boolean;
@@ -983,8 +1509,10 @@ export function ChatInput({
 	setTTS: React.Dispatch<SetStateAction<boolean>>;
 	socket: WebSocket;
 }) {
+	const [mode, setDefaultMode] = useState(defaultMode);
 	const hostURL = host || "https://app.trueselph.com";
 	const [content, setContent] = useState("");
+	const [transcribeContent, setTranscribeContent] = useState("");
 	const [_contentDraft, setContentDraft] = useState("");
 	const [_userMsgIndex, setUserMsgIndex] = useState(0);
 
@@ -995,6 +1523,7 @@ export function ChatInput({
 		startRecording,
 		stopRecording,
 		recordedBlob: recordingBlob,
+		audioData,
 	} = recorderControls;
 
 	const interactWithoutStreaming = async (
@@ -1117,13 +1646,15 @@ export function ChatInput({
 				playAudio(interaction.response.audio_url);
 			}
 		},
-		optimisticData: (current) =>
-			[
+		optimisticData: (current) => {
+			return [
 				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
-				{ id: "new", utterance: content },
-			] as any,
+				{ id: "new", utterance: transcribeContent || content },
+			] as any;
+		},
 		populateCache: (result, current) => {
 			setContent("");
+			setTranscribeContent("");
 			return [
 				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
 				...result,
@@ -1218,32 +1749,12 @@ export function ChatInput({
 		[content, sessionId, streaming],
 	);
 
-	const transcribe = async (blob: Blob) => {
-		const formData = new FormData();
-		formData.append(
-			"file",
-			new File([blob], "recording.wav", { type: blob.type }),
-		);
-		formData.append("agentId", agentId);
-		formData.append("sessionId", sessionId || "");
-		formData.append("instanceId", instanceId || "");
-
-		const result = await fetch(`${host}/api/transcribe`, {
-			method: "POST",
-			body: formData,
-		});
-
-		if (result.ok) return result;
-
-		formData.delete("agentId");
-		formData.delete("sessionId");
-		formData.delete("instanceId");
-
-		return fetch(`${host}/walker/stt/${agentId}`, {
-			method: "POST",
-			body: formData,
-		});
-	};
+	const { transcribe } = useTranscribe({
+		agentId,
+		sessionId,
+		instanceId,
+		host: host as string,
+	});
 
 	useEffect(() => {
 		if (!recordingBlob) return;
@@ -1258,118 +1769,203 @@ export function ChatInput({
 			const transcript = result.reports?.[0]?.transcript || result?.transcript;
 
 			if (transcript) {
-				sendMessage(transcript);
+				setTranscribeContent(transcript || "");
 			}
 
 			return result;
 		});
 	}, [recordingBlob]);
 
+	useEffect(() => {
+		if (transcribeContent) sendMessage(transcribeContent);
+	}, [transcribeContent]);
+
 	return (
-		<Card.Root
-			gap="0"
-			p="0"
-			bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-			borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-			rounded={"lg"}
-			w="100%"
-			maxW="100%"
-			style={{ overflow: "hidden" }}
-		>
-			<Card.Body p="0">
-				{!mediaRecorder ? (
-					<Textarea
-						color={"var(--ts-input-color, black)"}
-						_placeholder={{
-							color: "var(--ts-input-placeholder-color, black)",
-						}}
-						placeholder="Your message here..."
-						autoFocus
-						outline={"none"}
-						autoresize
-						maxH="4lh"
-						disabled={isMutating || isStreaming}
-						border="none"
-						size="lg"
-						rounded={"lg"}
-						// disabled={streamMutation.status === "pending"}
-						// className={classes.input}
-						rows={1}
-						value={content}
-						onChange={onContentChange}
-						onKeyDown={async (event) => {
-							if (event.code === "Enter" && !event.shiftKey) {
-								event.preventDefault();
-								if (content.trim().length > 0) {
-									sendMessage();
-								}
-							}
-						}}
-					/>
-				) : (
-					<VoiceVisualizer
-						isControlPanelShown={false}
-						height={40}
-						width={"100%"}
-						controls={recorderControls}
-						rounded={8}
-						barWidth={3}
-						mainBarColor="black"
-						backgroundColor="#EFF6FF"
-						fullscreen
-						animateCurrentPick
-						isProgressIndicatorTimeShown
-						speed={1}
-					/>
-				)}
-			</Card.Body>
-			<Card.Footer py="2" px="0">
-				<Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
-					<Flex gap="1" justify="start" w="100%" px="2" pb="0">
-						<IconButton
-							variant={isRecording ? "solid" : "subtle"}
-							colorPalette={isRecording ? "red" : "gray"}
-							rounded="lg"
-							size="sm"
-							onClick={() => {
-								stopAudio();
-								isRecording ? stopRecording() : startRecording();
-							}}
-						>
-							{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
-						</IconButton>
+		<>
+			{mode == "voice-first" && (
+				<VoiceChatInput
+					host={host!}
+					agentId={agentId}
+					setDefaultMode={setDefaultMode}
+					audioData={audioData}
+					isRecording={isRecording}
+					recordingBlob={recordingBlob}
+					startRecording={startRecording}
+					sessionId={sessionId}
+					instanceId={instanceId!}
+					stopRecording={stopRecording}
+					setTranscribeContent={setTranscribeContent}
+					stopAudio={stopAudio}
+				/>
+			)}
 
-						<IconButton
-							// variant="default"
-							colorPalette="gray"
-							rounded="lg"
-							size="sm"
-							onClick={() => {
-								if (TTS) stopAudio();
-								setTTS((prev) => !prev);
-							}}
-							// p="2"
-							// w="0"
-							// h="0"
-						>
-							{TTS ? <LuVolume2 /> : <LuVolumeOff />}
-						</IconButton>
-					</Flex>
+			{mode == "text-first" && (
+				<Card.Root
+					gap="0"
+					p="0"
+					bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
+					rounded={"lg"}
+					w="100%"
+					maxW="100%"
+					style={{ overflow: "hidden" }}
+				>
+					<Card.Body p="0">
+						{!mediaRecorder ? (
+							<Textarea
+								color={"var(--ts-input-color, black)"}
+								_placeholder={{
+									color: "var(--ts-input-placeholder-color, black)",
+								}}
+								placeholder="Your message here..."
+								autoFocus
+								outline={"none"}
+								autoresize
+								maxH="4lh"
+								disabled={isMutating || isStreaming}
+								border="none"
+								size="lg"
+								rounded={"lg"}
+								// disabled={streamMutation.status === "pending"}
+								// className={classes.input}
+								rows={1}
+								value={content}
+								onChange={onContentChange}
+								onKeyDown={async (event) => {
+									if (event.code === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										if (content.trim().length > 0) {
+											sendMessage();
+										}
+									}
+								}}
+							/>
+						) : (
+							<VoiceVisualizer
+								isControlPanelShown={false}
+								height={40}
+								width={"100%"}
+								controls={recorderControls}
+								rounded={8}
+								barWidth={3}
+								mainBarColor="black"
+								backgroundColor="#EFF6FF"
+								fullscreen
+								animateCurrentPick
+								isProgressIndicatorTimeShown
+								speed={1}
+							/>
+						)}
+					</Card.Body>
+					<Card.Footer py="2" px="0">
+						<Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
+							<Flex gap="1" justify="start" w="100%" px="2" pb="0">
+								<IconButton
+									variant={isRecording ? "solid" : "subtle"}
+									colorPalette={isRecording ? "red" : "gray"}
+									rounded="lg"
+									size="sm"
+									onClick={() => {
+										setDefaultMode("voice-first");
+										stopAudio();
+										isRecording ? stopRecording() : startRecording();
+									}}
+								>
+									{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
+								</IconButton>
 
-					<IconButton
-						// variant="default"
-						colorPalette="gray"
-						rounded="lg"
-						size="sm"
-						onClick={handleStreamAction}
-						disabled={!(isMutating && !isStreaming) && !content}
-						loading={isMutating && !isStreaming}
-					>
-						{isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
-					</IconButton>
-				</Flex>
-			</Card.Footer>
-			{/* <Show largerThan="sm" styles={{ display: "none" }}> */}
-		</Card.Root>
+								<IconButton
+									// variant="default"
+									colorPalette="gray"
+									rounded="lg"
+									size="sm"
+									onClick={() => {
+										if (TTS) stopAudio();
+										setTTS((prev) => !prev);
+									}}
+									// p="2"
+									// w="0"
+									// h="0"
+								>
+									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
+								</IconButton>
+							</Flex>
+
+							<IconButton
+								// variant="default"
+								colorPalette="gray"
+								rounded="lg"
+								size="sm"
+								onClick={handleStreamAction}
+								disabled={!(isMutating && !isStreaming) && !content}
+								loading={isMutating && !isStreaming}
+							>
+								{isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
+							</IconButton>
+						</Flex>
+					</Card.Footer>
+					{/* <Show largerThan="sm" styles={{ display: "none" }}> */}
+				</Card.Root>
+			)}
+		</>
+	);
+}
+
+export default function RadialVisualizer({
+	audioRef,
+}: {
+	audioRef: HTMLAudioElement | null;
+}) {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+
+	useEffect(() => {
+		if (!canvasRef.current || !audioRef) return;
+		const canvas = canvasRef.current;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+
+		const audioCtx = new AudioContext();
+		const analyser = audioCtx.createAnalyser();
+		const source = audioCtx.createMediaElementSource(audioRef);
+		source.connect(analyser);
+		analyser.connect(audioCtx.destination);
+
+		analyser.fftSize = 256;
+		const bufferLength = analyser.frequencyBinCount;
+		const dataArray = new Uint8Array(bufferLength);
+
+		function draw() {
+			requestAnimationFrame(draw);
+			analyser.getByteFrequencyData(dataArray);
+
+			ctx?.clearRect(0, 0, canvas.width, canvas.height);
+
+			const cx = canvas.width / 2;
+			const cy = canvas.height / 2;
+			const radius = 50;
+
+			for (let i = 0; i < bufferLength; i++) {
+				const angle = (i / bufferLength) * 2 * Math.PI;
+				const barLength = dataArray[i] / 2;
+				const x = cx + Math.cos(angle) * (radius + barLength);
+				const y = cy + Math.sin(angle) * (radius + barLength);
+
+				ctx?.beginPath();
+				ctx?.arc(x, y, 2, 0, Math.PI * 2);
+				ctx!.fillStyle = `rgba(0, 0, 255, ${dataArray[i] / 255})`;
+				ctx?.fill();
+			}
+		}
+
+		draw();
+	}, [audioRef]);
+
+	return (
+		<canvas
+			ref={canvasRef}
+			width={200}
+			height={200}
+			style={{ position: "absolute", zIndex: -1 }}
+		/>
 	);
 }

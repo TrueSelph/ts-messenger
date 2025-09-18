@@ -4,6 +4,13 @@ import tsconfigPaths from "vite-tsconfig-paths";
 
 // https://vite.dev/config/
 export default defineConfig({
+	server: {
+		allowedHosts: [
+			"https://tsmessenger.gimel.dev",
+			"https://ts-platform.gimel.dev",
+			"ts-platform.gimel.dev",
+		],
+	},
 	plugins: [preact(), tsconfigPaths()],
 	build: {
 		rollupOptions: {

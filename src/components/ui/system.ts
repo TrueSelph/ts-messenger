@@ -5,6 +5,20 @@ const varRoot = ":host";
 const config = defineConfig({
 	theme: {
 		keyframes: {
+			smoke: {
+				"0%": {
+					transform: "translate(-50%, -50%) scale(1)",
+					opacity: "0.6",
+				},
+				"50%": {
+					transform: "translate(-50%, -50%) scale(1.3)",
+					opacity: "0.3",
+				},
+				"100%": {
+					transform: "translate(-50%, -50%) scale(1)",
+					opacity: "0.6",
+				},
+			},
 			talking: {
 				"0%": {
 					transform: "scale(0.95)",
