@@ -62,6 +62,7 @@ import type { ComponentChild, RefObject } from "preact";
 import { ReplyIndicator } from "./components/ReplyIndicator";
 import { Popup } from "./popup";
 import { useTranscribe } from "./useTranscribe";
+
 export type HeaderConfig = {
 	showAvatar?: boolean;
 	avatarUrl?: string;
@@ -76,6 +77,8 @@ function localStorageProvider(agentId?: string, sessionId?: string) {
 				localStorage.getItem(`ts-msgs-${agentId}-${sessionId}`) || "[]",
 			),
 		);
+
+		console.log({ map });
 
 		window.addEventListener("tsmsave", () => {
 			const appCache = JSON.stringify(Array.from(map.entries()));
@@ -107,6 +110,7 @@ export type AppProps = {
 	useLocalStorageCache?: boolean;
 	codeTheme?: string;
 	layout?: "standard" | "popup";
+	sessionIdStorage?: "localstorage" | "cookie" | "sessionstorage";
 };
 
 export function App(props: AppProps) {
@@ -134,6 +138,52 @@ function getCookie(name: string) {
 	const value = `; ${document.cookie}`;
 	const parts = value.split(`; ${name}=`);
 	if (parts.length === 2) return parts?.pop()?.split(";").shift();
+}
+
+function getLocalStorage(key: string) {
+	try {
+		return localStorage.getItem(key);
+	} catch (error) {
+		console.error(error);
+		return null;
+	}
+}
+
+function getSessionId(mode: "sessionstorage" | "cookie" | "localstorage") {
+	try {
+		switch (mode) {
+			case "sessionstorage":
+				return sessionStorage.getItem("tsSessionId");
+			case "cookie":
+				return getCookie("tsSessionId");
+			case "localstorage":
+				return getLocalStorage("tsSessionId");
+			default:
+				return null;
+		}
+	} catch (error) {
+		console.error(error);
+		return null;
+	}
+}
+
+function saveSessionId(
+	id: string,
+	mode: "sessionstorage" | "cookie" | "localstorage",
+) {
+	switch (mode) {
+		case "sessionstorage":
+			sessionStorage.setItem("tsSessionId", id);
+			break;
+		case "cookie":
+			document.cookie = `tsSessionId=${id}; path=/`;
+			break;
+		case "localstorage":
+			localStorage.setItem("tsSessionId", id);
+			break;
+		default:
+			break;
+	}
 }
 
 export function AppContainer(props: AppProps) {
@@ -195,6 +245,7 @@ function ChatContainer({
 	withDebug,
 	socket,
 	fullScreenRef,
+	sessionIdStorage,
 }: AppProps & {
 	themeParsed: Record<string, string>;
 	headerConfigParsed: HeaderConfig;
@@ -252,7 +303,10 @@ function ChatContainer({
 
 	const { data, mutate } = useSWR(
 		`/interactions/${sessionId}`,
-		() => initialInteractionsParsed || [],
+		() =>
+			initialInteractionsParsed.filter(
+				(interaction) => interaction.id !== "new",
+			) || [],
 		{
 			revalidateIfStale: false,
 			revalidateOnFocus: false,
@@ -385,6 +439,7 @@ function ChatContainer({
 						host={host}
 						streaming={!!streaming}
 						sessionId={sessionId}
+						sessionIdStorage={sessionIdStorage}
 						instanceId={instanceId}
 						agentId={agentId}
 						TTS={TTS}
@@ -1499,6 +1554,7 @@ export function ChatInput({
 	setTTS,
 	socket,
 	defaultMode = "text-first",
+	sessionIdStorage,
 }: {
 	defaultMode: "text-first" | "voice-first";
 	sessionId: string;
@@ -1511,6 +1567,7 @@ export function ChatInput({
 	stopAudio: () => void;
 	setTTS: React.Dispatch<SetStateAction<boolean>>;
 	socket: WebSocket;
+	sessionIdStorage: AppProps["sessionIdStorage"];
 }) {
 	const [mode, setDefaultMode] = useState(defaultMode);
 	const hostURL = host || "https://app.trueselph.com";
@@ -1518,6 +1575,7 @@ export function ChatInput({
 	const [transcribeContent, setTranscribeContent] = useState("");
 	const [_contentDraft, setContentDraft] = useState("");
 	const [_userMsgIndex, setUserMsgIndex] = useState(0);
+	const defaultStorageMode = "localstorage";
 
 	const recorderControls = useVoiceVisualizer();
 	const {
@@ -1533,13 +1591,17 @@ export function ChatInput({
 		_url: string,
 		{ arg }: { arg: { sessionId: string; content: string } },
 	) => {
+		const sessionId =
+			arg.sessionId ||
+			getSessionId(sessionIdStorage || defaultStorageMode) ||
+			undefined;
 		const fullResult = await fetch(`${hostURL}/interact`, {
 			method: "POST",
 			body: JSON.stringify({
 				agent_id: agentId,
 				utterance: arg.content,
 				instance_id: instanceId ? instanceId : undefined,
-				session_id: arg.sessionId || getCookie("tsSessionId"),
+				session_id: sessionId,
 				tts: TTS,
 				verbose: true,
 				streaming: false,
@@ -1558,8 +1620,11 @@ export function ChatInput({
 				return result;
 			});
 
-		if (!getCookie("tsSessionId")) {
-			document.cookie = `tsSessionId=${fullResult.response?.session_id}; path=/`;
+		if (!sessionId) {
+			saveSessionId(
+				fullResult.response?.session_id,
+				sessionIdStorage || defaultStorageMode,
+			);
 		}
 
 		window.dispatchEvent(new CustomEvent("tsmsave"));
@@ -1573,6 +1638,11 @@ export function ChatInput({
 		_url: string,
 		{ arg }: { arg: { sessionId: string; content: string } },
 	) => {
+		const sessionId =
+			arg.sessionId ||
+			getSessionId(sessionIdStorage || defaultStorageMode) ||
+			undefined;
+
 		return new Promise((resolve, reject) => {
 			if (socket?.readyState === WebSocket.OPEN) {
 				socket.onmessage = (event) => {
@@ -1588,7 +1658,7 @@ export function ChatInput({
 								context: {
 									agent_id: agentId,
 									utterance: arg.content,
-									session_id: sessionId || getCookie("tsSessionId"),
+									session_id: sessionId,
 									tts: false,
 									verbose: false,
 									streaming: true,
@@ -1699,6 +1769,21 @@ export function ChatInput({
 		},
 	);
 
+	const { trigger: clearStalledInteractions } = useSWRMutation<
+		(Interaction & { isFinal: boolean })[]
+	>(
+		`/interactions/${sessionId}`,
+		(_url: string) => {
+			return [];
+		},
+		{
+			revalidate: false,
+			populateCache: (_result, current) => {
+				return [...(current || []).filter((i) => i.id !== "new")];
+			},
+		},
+	);
+
 	const { trigger: triggerWithStreaming, isMutating: isStreaming } =
 		useSWRMutation<Promise<Interaction>>(
 			`/interactions/${sessionId}`,
@@ -1782,6 +1867,10 @@ export function ChatInput({
 	useEffect(() => {
 		if (transcribeContent) sendMessage(transcribeContent);
 	}, [transcribeContent]);
+
+	useEffect(() => {
+		clearStalledInteractions();
+	}, []);
 
 	return (
 		<>
