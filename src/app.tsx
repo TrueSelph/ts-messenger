@@ -151,7 +151,7 @@ export function AppContainer(props: AppProps) {
 	const fullScreenRef = useRef<HTMLDivElement>(null);
 
 	return (
-		<div ref={fullScreenRef} style={{ background: "var(--ts-chat-fg, white)" }}>
+		<div ref={fullScreenRef} style={{ background: "var(--ts-chat-bg, white)" }}>
 			<Provider theme={themeParsed} layout={layout}>
 				<>
 					{/*<ColorModeProvider>*/}
@@ -368,6 +368,7 @@ function ChatContainer({
 					{data?.length ? null : (
 						<Text
 							color={"var(--ts-chat-fg, black)"}
+							textAlign="center"
 							fontWeight={500}
 							fontSize={"xl"}
 							my="2"
