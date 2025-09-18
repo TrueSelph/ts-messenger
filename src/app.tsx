@@ -151,7 +151,7 @@ export function AppContainer(props: AppProps) {
 	const fullScreenRef = useRef<HTMLDivElement>(null);
 
 	return (
-		<div ref={fullScreenRef} style={{ background: "var(--ts-chat-bg, white)" }}>
+		<div ref={fullScreenRef}>
 			<Provider theme={themeParsed} layout={layout}>
 				<>
 					{/*<ColorModeProvider>*/}
@@ -335,6 +335,8 @@ function ChatContainer({
 				alignItems={data?.length ? "flex-start" : "center"}
 				justifyContent={data?.length ? undefined : "center"}
 				h="100%"
+				maxH="100dvh"
+				style={{ background: "var(--ts-chat-bg, white)" }}
 			>
 				{(headerConfigParsed?.show || !data?.length) && (
 					<ChatHeader
