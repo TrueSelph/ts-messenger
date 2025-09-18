@@ -151,7 +151,7 @@ export function AppContainer(props: AppProps) {
 	const fullScreenRef = useRef<HTMLDivElement>(null);
 
 	return (
-		<div ref={fullScreenRef}>
+		<div ref={fullScreenRef} style={{ height: "100%" }}>
 			<Provider theme={themeParsed} layout={layout}>
 				<>
 					{/*<ColorModeProvider>*/}
@@ -379,7 +379,7 @@ function ChatContainer({
 						</Text>
 					)}
 					<ChatInput
-						defaultMode="voice-first"
+						defaultMode="text-first"
 						socket={socket}
 						playAudio={playAudio}
 						host={host}
