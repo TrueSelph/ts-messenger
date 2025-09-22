@@ -40,6 +40,8 @@ import {
 	useEffect,
 	useRef,
 	useState,
+	useMemo,
+	memo,
 	type ChangeEvent,
 	type SetStateAction,
 } from "preact/compat";
@@ -62,6 +64,8 @@ import type { ComponentChild, RefObject } from "preact";
 import { ReplyIndicator } from "./components/ReplyIndicator";
 import { Popup } from "./popup";
 import { useTranscribe } from "./useTranscribe";
+import { avatarUrl } from "./avatar";
+import { IconAudioVisualizer } from "./IconAudioVisualizer";
 
 export type HeaderConfig = {
 	showAvatar?: boolean;
@@ -201,10 +205,12 @@ export function AppContainer(props: AppProps) {
 	const fullScreenRef = useRef<HTMLDivElement>(null);
 
 	return (
-		<div ref={fullScreenRef} style={{ height: "100%" }}>
+		<div
+			ref={fullScreenRef}
+			style={{ height: layout === "popup" ? undefined : "100%" }}
+		>
 			<Provider theme={themeParsed} layout={layout}>
 				<>
-					{/*<ColorModeProvider>*/}
 					{layout === "popup" ? (
 						<Popup {...props} headerConfig={headerConfigParsed}>
 							<ChatContainer
@@ -224,12 +230,1116 @@ export function AppContainer(props: AppProps) {
 							{...props}
 						/>
 					)}
-					{/*</ColorModeProvider>*/}
 				</>
 			</Provider>
 		</div>
 	);
 }
+
+// Highly Reactive Circular Waveform Visualizer with Fixed Clipping
+interface CircularWaveformVisualizerProps {
+	audioUrl: string;
+	isPlaying: boolean;
+}
+
+const CircularWaveformVisualizer = memo(
+	({ audioUrl, isPlaying }: CircularWaveformVisualizerProps) => {
+		const canvasRef = useRef<HTMLCanvasElement>(null);
+		const animationRef = useRef<number | null>(null);
+		const audioContextRef = useRef<AudioContext | null>(null);
+		const analyserRef = useRef<AnalyserNode | null>(null);
+		const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+		const audioElementRef = useRef<HTMLAudioElement | null>(null);
+		const gainNodeRef = useRef<GainNode | null>(null);
+
+		// Optimized refs for water droplet effect
+		// const audioHistory = useRef<number[]>(new Array(8).fill(0));
+		const lastCanvasSize = useRef({ width: 0, height: 0 });
+		const rippleHistory = useRef<number[][]>([
+			new Array(12).fill(0), // Droplet 1 ripple history
+			new Array(12).fill(0), // Droplet 2 ripple history
+			new Array(12).fill(0), // Droplet 3 ripple history
+		]);
+
+		const initializeAudio = useCallback(async () => {
+			if (!audioUrl) return;
+
+			try {
+				if (!audioContextRef.current) {
+					audioContextRef.current = new (window.AudioContext ||
+						(window as any).webkitAudioContext)();
+				}
+
+				const audioContext = audioContextRef.current;
+				if (audioContext.state === "suspended") {
+					await audioContext.resume();
+				}
+
+				if (!audioElementRef.current) {
+					const audio = new Audio();
+					audio.crossOrigin = "anonymous";
+					audio.preload = "auto";
+					audio.volume = 1.0;
+					audioElementRef.current = audio;
+				}
+
+				const audio = audioElementRef.current;
+
+				if (!sourceRef.current && audio) {
+					const analyser = audioContext.createAnalyser();
+					analyser.fftSize = 128;
+					analyser.smoothingTimeConstant = 0.1;
+					analyser.minDecibels = -80;
+					analyser.maxDecibels = -10;
+					analyserRef.current = analyser;
+
+					const gainNode = audioContext.createGain();
+					gainNode.gain.value = 0;
+					gainNodeRef.current = gainNode;
+
+					const source = audioContext.createMediaElementSource(audio);
+					source.connect(analyser);
+					analyser.connect(gainNode);
+					gainNode.connect(audioContext.destination);
+					sourceRef.current = source;
+				}
+
+				if (audio.src !== audioUrl) {
+					audio.src = audioUrl;
+				}
+			} catch (error) {
+				console.error("Error initializing audio:", error);
+			}
+		}, [audioUrl]);
+
+		const dataArray = useRef<Uint8Array>();
+
+		const drawVisualization = useCallback((currentTime: number) => {
+			const canvas = canvasRef.current;
+			const analyser = analyserRef.current;
+
+			if (!canvas || !analyser) return;
+
+			const ctx = canvas.getContext("2d");
+			if (!ctx) return;
+
+			// Optimize canvas sizing
+			const rect = canvas.getBoundingClientRect();
+			const dpr = window.devicePixelRatio || 1;
+			const scaledWidth = rect.width * dpr;
+			const scaledHeight = rect.height * dpr;
+
+			if (
+				lastCanvasSize.current.width !== scaledWidth ||
+				lastCanvasSize.current.height !== scaledHeight
+			) {
+				canvas.width = scaledWidth;
+				canvas.height = scaledHeight;
+				canvas.style.width = rect.width + "px";
+				canvas.style.height = rect.height + "px";
+				ctx.scale(dpr, dpr);
+				lastCanvasSize.current = { width: scaledWidth, height: scaledHeight };
+			}
+
+			ctx.clearRect(0, 0, rect.width, rect.height);
+
+			const centerX = rect.width * 0.5;
+			const centerY = rect.height * 0.5;
+
+			// Get audio data
+			const bufferLength = analyser.frequencyBinCount;
+			if (!dataArray.current || dataArray.current.length !== bufferLength) {
+				dataArray.current = new Uint8Array(bufferLength);
+			}
+
+			analyser.getByteFrequencyData(dataArray.current);
+
+			// Process frequency bands for different droplets
+			let bassSum = 0,
+				midSum = 0,
+				highSum = 0;
+
+			// Bass (1-4), Mid (5-15), High (16-32)
+			for (let i = 1; i <= 4; i++) bassSum += dataArray.current[i];
+			for (let i = 5; i <= 15; i++) midSum += dataArray.current[i];
+			for (let i = 16; i <= 32; i++) highSum += dataArray.current[i];
+
+			const bassLevel = bassSum / (4 * 255);
+			const midLevel = midSum / (11 * 255);
+			const highLevel = highSum / (17 * 255);
+
+			// Update ripple histories for each droplet
+			rippleHistory.current[0].shift();
+			rippleHistory.current[0].push(bassLevel);
+			rippleHistory.current[1].shift();
+			rippleHistory.current[1].push(midLevel);
+			rippleHistory.current[2].shift();
+			rippleHistory.current[2].push(highLevel);
+
+			const time = currentTime * 0.001;
+
+			// Draw 3 overlapping water droplets with different properties
+			drawWaterDroplet(
+				ctx,
+				centerX,
+				centerY,
+				68,
+				bassLevel,
+				rippleHistory.current[0],
+				time,
+				0,
+				"rgba(139, 92, 246, 0.4)",
+				0.8,
+			);
+			drawWaterDroplet(
+				ctx,
+				centerX,
+				centerY,
+				75,
+				midLevel,
+				rippleHistory.current[1],
+				time * 1.2,
+				Math.PI * 0.4,
+				"rgba(99, 102, 241, 0.35)",
+				0.9,
+			);
+			drawWaterDroplet(
+				ctx,
+				centerX,
+				centerY,
+				82,
+				highLevel,
+				rippleHistory.current[2],
+				time * 0.7,
+				Math.PI * 0.8,
+				"rgba(75, 85, 235, 0.3)",
+				1.0,
+			);
+
+			animationRef.current = requestAnimationFrame(drawVisualization);
+		}, []);
+
+		const drawWaterDroplet = useCallback(
+			(
+				ctx: CanvasRenderingContext2D,
+				centerX: number,
+				centerY: number,
+				baseRadius: number,
+				currentIntensity: number,
+				rippleHistory: number[],
+				time: number,
+				phaseOffset: number,
+				fillColor: string,
+				distortionScale: number,
+			) => {
+				const points: { x: number; y: number }[] = [];
+				const numPoints = 48; // High resolution for smooth water effect
+
+				// Calculate ripple intensity from history
+				const rippleIntensity =
+					rippleHistory.reduce((sum, val) => sum + val, 0) /
+					rippleHistory.length;
+				const enhancedIntensity =
+					Math.pow(currentIntensity * 2.5, 0.7) * distortionScale;
+
+				for (let i = 0; i < numPoints; i++) {
+					const angle = (i / numPoints) * Math.PI * 2 + phaseOffset;
+
+					// Create multiple wave layers for water-like distortion
+					const primaryWave =
+						Math.sin(angle * 3 + time * 2) * enhancedIntensity * 8;
+					const secondaryWave =
+						Math.sin(angle * 6 + time * 3.5) * enhancedIntensity * 4;
+					const tertiaryWave =
+						Math.sin(angle * 12 + time * 5) * enhancedIntensity * 2;
+
+					// Ripple effect that propagates outward from impact points
+					const rippleEffect =
+						Math.sin(angle * 8 + time * 8) * rippleIntensity * 6;
+
+					// Surface tension simulation - creates the "droplet" shape
+					const surfaceTension =
+						Math.sin(angle * 2 + time * 1.5) * (1 + enhancedIntensity) * 3;
+
+					// Combine all distortions
+					const totalDistortion =
+						primaryWave +
+						secondaryWave +
+						tertiaryWave +
+						rippleEffect +
+						surfaceTension;
+
+					// Add subtle breathing motion
+					const breathingMotion =
+						Math.sin(time * 2 + angle * 0.5) * (0.5 + enhancedIntensity) * 2;
+
+					const finalRadius = baseRadius + totalDistortion + breathingMotion;
+
+					// Calculate position with slight wobble for liquid effect
+					const wobbleX =
+						Math.sin(time * 3 + angle * 2) * enhancedIntensity * 1.5;
+					const wobbleY =
+						Math.cos(time * 3.2 + angle * 2.2) * enhancedIntensity * 1.5;
+
+					const x = centerX + Math.cos(angle) * finalRadius + wobbleX;
+					const y = centerY + Math.sin(angle) * finalRadius + wobbleY;
+
+					points.push({ x, y });
+				}
+
+				// Draw smooth water droplet using bezier curves
+				ctx.beginPath();
+				ctx.moveTo(points[0].x, points[0].y);
+
+				for (let i = 0; i < points.length; i++) {
+					const current = points[i];
+					const next = points[(i + 1) % points.length];
+					// const nextNext = points[(i + 2) % points.length];
+
+					// Create smooth curves using quadratic bezier
+					const cpX = (current.x + next.x) * 0.5;
+					const cpY = (current.y + next.y) * 0.5;
+
+					ctx.quadraticCurveTo(current.x, current.y, cpX, cpY);
+				}
+
+				ctx.closePath();
+
+				// Create water-like gradient
+				const gradient = ctx.createRadialGradient(
+					centerX,
+					centerY,
+					baseRadius * 0.3,
+					centerX,
+					centerY,
+					baseRadius * 1.2,
+				);
+
+				// Dynamic gradient based on audio intensity
+				const opacity = Math.min(0.8, 0.3 + enhancedIntensity * 0.5);
+				const centerOpacity = Math.min(0.9, 0.5 + enhancedIntensity * 0.4);
+
+				gradient.addColorStop(
+					0,
+					fillColor.replace(/[\d\.]+\)$/, `${centerOpacity})`),
+				);
+				gradient.addColorStop(
+					0.7,
+					fillColor.replace(/[\d\.]+\)$/, `${opacity * 0.7})`),
+				);
+				gradient.addColorStop(1, fillColor.replace(/[\d\.]+\)$/, "0.05)"));
+
+				ctx.fillStyle = gradient;
+				ctx.fill();
+
+				// Add subtle inner highlight for water effect
+				if (enhancedIntensity > 0.3) {
+					const highlightGradient = ctx.createRadialGradient(
+						centerX - baseRadius * 0.2,
+						centerY - baseRadius * 0.2,
+						0,
+						centerX,
+						centerY,
+						baseRadius * 0.6,
+					);
+
+					const highlightOpacity = (enhancedIntensity - 0.3) * 0.4;
+					highlightGradient.addColorStop(
+						0,
+						`rgba(255, 255, 255, ${highlightOpacity})`,
+					);
+					highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+
+					ctx.fillStyle = highlightGradient;
+					ctx.fill();
+				}
+
+				// Add outer glow for high intensity
+				if (enhancedIntensity > 0.4) {
+					ctx.shadowBlur = 8 + enhancedIntensity * 12;
+					ctx.shadowColor = fillColor.replace(
+						/[\d\.]+\)$/,
+						`${enhancedIntensity * 0.6})`,
+					);
+					ctx.fill();
+					ctx.shadowBlur = 0;
+				}
+
+				// Add surface ripples for very high intensity
+				if (enhancedIntensity > 0.6) {
+					drawSurfaceRipples(
+						ctx,
+						centerX,
+						centerY,
+						baseRadius,
+						enhancedIntensity,
+						time,
+						fillColor,
+					);
+				}
+			},
+			[],
+		);
+
+		const drawSurfaceRipples = useCallback(
+			(
+				ctx: CanvasRenderingContext2D,
+				centerX: number,
+				centerY: number,
+				baseRadius: number,
+				intensity: number,
+				time: number,
+				color: string,
+			) => {
+				// Draw concentric ripples on the water surface
+				const numRipples = 3;
+
+				for (let i = 0; i < numRipples; i++) {
+					const rippleRadius =
+						baseRadius + intensity * 15 + Math.sin(time * 6 + i * 2) * 8;
+					const rippleOpacity = (intensity - 0.6) * 0.3 * (1 - i * 0.3);
+
+					if (rippleOpacity > 0) {
+						ctx.beginPath();
+						ctx.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
+						ctx.strokeStyle = color.replace(/[\d\.]+\)$/, `${rippleOpacity})`);
+						ctx.lineWidth = 1 + intensity * 2;
+						ctx.stroke();
+					}
+				}
+			},
+			[],
+		);
+
+		useEffect(() => {
+			if (!isPlaying) {
+				if (animationRef.current) {
+					cancelAnimationFrame(animationRef.current);
+					animationRef.current = null;
+				}
+				if (audioElementRef.current) {
+					audioElementRef.current.pause();
+				}
+				const canvas = canvasRef.current;
+				if (canvas) {
+					const ctx = canvas.getContext("2d");
+					if (ctx) {
+						ctx.clearRect(0, 0, canvas.width, canvas.height);
+					}
+				}
+				return;
+			}
+
+			initializeAudio().then(() => {
+				if (audioElementRef.current && isPlaying) {
+					audioElementRef.current.play().catch(console.error);
+					animationRef.current = requestAnimationFrame(drawVisualization);
+				}
+			});
+
+			return () => {
+				if (animationRef.current) {
+					cancelAnimationFrame(animationRef.current);
+				}
+			};
+		}, [audioUrl, isPlaying, initializeAudio, drawVisualization]);
+
+		useEffect(() => {
+			return () => {
+				if (animationRef.current) {
+					cancelAnimationFrame(animationRef.current);
+				}
+				if (audioElementRef.current) {
+					audioElementRef.current.pause();
+					audioElementRef.current.src = "";
+				}
+				if (audioContextRef.current?.state !== "closed") {
+					audioContextRef.current?.close();
+				}
+			};
+		}, []);
+
+		return (
+			<chakra.canvas
+				ref={canvasRef}
+				position="absolute"
+				top="50%"
+				left="50%"
+				width="180px"
+				height="180px"
+				transform="translate(-50%, -50%)"
+				zIndex={0}
+				pointerEvents="none"
+				style={{
+					maxWidth: "180px",
+					maxHeight: "180px",
+				}}
+			/>
+		);
+	},
+);
+
+// const CircularWaveformVisualizer = memo(
+// 	({ audioUrl, isPlaying }: CircularWaveformVisualizerProps) => {
+// 		const canvasRef = useRef<HTMLCanvasElement>(null);
+// 		const animationRef = useRef<number | null>(null);
+// 		const audioContextRef = useRef<AudioContext | null>(null);
+// 		const analyserRef = useRef<AnalyserNode | null>(null);
+// 		const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+// 		const audioElementRef = useRef<HTMLAudioElement | null>(null);
+// 		const gainNodeRef = useRef<GainNode | null>(null);
+
+// 		// Optimized refs - reduced history and cached values
+// 		const audioHistory = useRef<number[]>(new Array(8).fill(0)); // Reduced from 30
+// 		const lastCanvasSize = useRef({ width: 0, height: 0 });
+// 		const cachedColors = useRef({
+// 			bassMain: "rgba(139, 92, 246, 0.8)",
+// 			bassAccent: "rgba(99, 102, 241, 0.6)",
+// 			midMain: "rgba(99, 102, 241, 0.7)",
+// 			midAccent: "rgba(139, 92, 246, 0.5)",
+// 		});
+
+// 		const initializeAudio = useCallback(async () => {
+// 			if (!audioUrl) return;
+
+// 			try {
+// 				// Reuse existing context if possible
+// 				if (!audioContextRef.current) {
+// 					audioContextRef.current = new (window.AudioContext ||
+// 						(window as any).webkitAudioContext)();
+// 				}
+
+// 				const audioContext = audioContextRef.current;
+// 				if (audioContext.state === "suspended") {
+// 					await audioContext.resume();
+// 				}
+
+// 				// Reuse existing audio element
+// 				if (!audioElementRef.current) {
+// 					const audio = new Audio();
+// 					audio.crossOrigin = "anonymous";
+// 					audio.preload = "auto";
+// 					audio.volume = 1.0;
+// 					audioElementRef.current = audio;
+// 				}
+
+// 				const audio = audioElementRef.current;
+
+// 				// Only create nodes once
+// 				if (!sourceRef.current && audio) {
+// 					const analyser = audioContext.createAnalyser();
+// 					// Optimized analyser settings for performance
+// 					analyser.fftSize = 128; // Reduced from 256 for better performance
+// 					analyser.smoothingTimeConstant = 0.1; // Less smoothing for more responsiveness
+// 					analyser.minDecibels = -80;
+// 					analyser.maxDecibels = -10;
+// 					analyserRef.current = analyser;
+
+// 					const gainNode = audioContext.createGain();
+// 					gainNode.gain.value = 0;
+// 					gainNodeRef.current = gainNode;
+
+// 					const source = audioContext.createMediaElementSource(audio);
+// 					source.connect(analyser);
+// 					analyser.connect(gainNode);
+// 					gainNode.connect(audioContext.destination);
+// 					sourceRef.current = source;
+// 				}
+
+// 				if (audio.src !== audioUrl) {
+// 					audio.src = audioUrl;
+// 				}
+// 			} catch (error) {
+// 				console.error("Error initializing audio:", error);
+// 			}
+// 		}, [audioUrl]);
+
+// 		// Pre-allocated arrays for better performance
+// 		const dataArray = useRef<Uint8Array>();
+// 		const bassRange = useRef<Uint8Array>();
+// 		const midRange = useRef<Uint8Array>();
+
+// 		const drawVisualization = useCallback((currentTime: number) => {
+// 			const canvas = canvasRef.current;
+// 			const analyser = analyserRef.current;
+
+// 			if (!canvas || !analyser) return;
+
+// 			// Remove 30fps throttling for smoother animation
+// 			const ctx = canvas.getContext("2d");
+// 			if (!ctx) return;
+
+// 			// Optimize canvas sizing - only update when changed
+// 			const rect = canvas.getBoundingClientRect();
+// 			const dpr = window.devicePixelRatio || 1;
+// 			const scaledWidth = rect.width * dpr;
+// 			const scaledHeight = rect.height * dpr;
+
+// 			if (
+// 				lastCanvasSize.current.width !== scaledWidth ||
+// 				lastCanvasSize.current.height !== scaledHeight
+// 			) {
+// 				canvas.width = scaledWidth;
+// 				canvas.height = scaledHeight;
+// 				canvas.style.width = rect.width + "px";
+// 				canvas.style.height = rect.height + "px";
+// 				ctx.scale(dpr, dpr);
+// 				lastCanvasSize.current = { width: scaledWidth, height: scaledHeight };
+// 			}
+
+// 			// Fast clear
+// 			ctx.clearRect(0, 0, rect.width, rect.height);
+
+// 			// Cache frequently used values
+// 			const centerX = rect.width * 0.5;
+// 			const centerY = rect.height * 0.5;
+// 			const avatarRadius = 70;
+// 			const baseRadius = avatarRadius + 4;
+// 			const secondRadius = avatarRadius + 14; // Fixed: was same as baseRadius
+
+// 			// Reuse data arrays
+// 			const bufferLength = analyser.frequencyBinCount;
+// 			if (!dataArray.current || dataArray.current.length !== bufferLength) {
+// 				dataArray.current = new Uint8Array(bufferLength);
+// 				bassRange.current = new Uint8Array(6); // Pre-allocate slices
+// 				midRange.current = new Uint8Array(20);
+// 			}
+
+// 			analyser.getByteFrequencyData(dataArray.current);
+
+// 			// Optimized frequency analysis - direct indexing instead of slice()
+// 			let bassSum = 0;
+// 			let midSum = 0;
+
+// 			// Bass: indices 1-6 (skip DC at 0)
+// 			for (let i = 1; i <= 6; i++) {
+// 				bassSum += dataArray.current[i];
+// 			}
+// 			// Mid: indices 7-26
+// 			for (let i = 7; i <= 26; i++) {
+// 				midSum += dataArray.current[i];
+// 			}
+
+// 			const bassLevel = bassSum / (6 * 255);
+// 			const midLevel = midSum / (20 * 255);
+
+// 			// Simplified intensity calculation
+// 			const overallIntensity = (bassLevel * 1.6 + midLevel * 1.4) * 0.5;
+
+// 			// Minimal history smoothing
+// 			audioHistory.current.shift();
+// 			audioHistory.current.push(overallIntensity);
+// 			const smoothAverage =
+// 				audioHistory.current.reduce((a, b) => a + b, 0) * 0.125; // Divide by 8
+
+// 			const time = currentTime * 0.001;
+// 			const enhancedIntensity = Math.pow(
+// 				(overallIntensity * 0.7 + smoothAverage * 0.3) * 2.2,
+// 				0.65,
+// 			);
+
+// 			// Draw rings with optimized parameters
+// 			drawOptimizedRing(
+// 				ctx,
+// 				centerX,
+// 				centerY,
+// 				baseRadius,
+// 				enhancedIntensity,
+// 				bassLevel,
+// 				time,
+// 				0,
+// 				true,
+// 			);
+// 			drawOptimizedRing(
+// 				ctx,
+// 				centerX,
+// 				centerY,
+// 				secondRadius,
+// 				enhancedIntensity,
+// 				midLevel,
+// 				time * 1.3,
+// 				Math.PI * 0.167,
+// 				false,
+// 			);
+
+// 			animationRef.current = requestAnimationFrame(drawVisualization);
+// 		}, []);
+
+// 		const drawOptimizedRing = useCallback(
+// 			(
+// 				ctx: CanvasRenderingContext2D,
+// 				centerX: number,
+// 				centerY: number,
+// 				radius: number,
+// 				overallIntensity: number,
+// 				frequencyIntensity: number,
+// 				time: number,
+// 				phaseOffset: number,
+// 				isBass: boolean,
+// 			) => {
+// 				const bars = isBass ? 36 : 24; // Reduced bar count for performance
+// 				const colors = cachedColors.current;
+
+// 				// Pre-calculate common values
+// 				const baseExpansion = frequencyIntensity * 16;
+// 				const pulseExpansion =
+// 					Math.sin(time * 8 + phaseOffset) * overallIntensity * 6;
+// 				const timeVar = time * 3;
+// 				const angleMultiplier = (Math.PI * 2) / bars;
+
+// 				// Batch drawing operations
+// 				ctx.lineCap = "round";
+// 				ctx.globalAlpha = Math.min(1, 0.6 + overallIntensity * 0.4);
+
+// 				for (let i = 0; i < bars; i++) {
+// 					const angle = i * angleMultiplier + phaseOffset;
+
+// 					// Simplified amplitude calculation
+// 					const angleVar = Math.sin(angle * 2.5 + time * 2.5) * 0.25;
+// 					const timeVar2 = Math.sin(timeVar + i * 0.15) * 0.15;
+
+// 					const amplitude =
+// 						(frequencyIntensity + angleVar + timeVar2) * (1 + overallIntensity);
+// 					const barHeight = Math.max(
+// 						2,
+// 						Math.min(12, baseExpansion * amplitude + pulseExpansion),
+// 					);
+
+// 					const halfHeight = barHeight * 0.5;
+// 					const innerRadius = radius - halfHeight;
+// 					const outerRadius = radius + halfHeight;
+
+// 					// Color selection with reduced string operations
+// 					const useMain = (i & 1) === 0 || overallIntensity > 0.5; // Bitwise instead of modulo
+// 					ctx.strokeStyle = isBass
+// 						? useMain
+// 							? colors.bassMain
+// 							: colors.bassAccent
+// 						: useMain
+// 							? colors.midMain
+// 							: colors.midAccent;
+
+// 					ctx.lineWidth = 1.8 + overallIntensity * 2.2;
+
+// 					// Optimized shadow for high intensity
+// 					if (overallIntensity > 0.35) {
+// 						ctx.shadowBlur = 1.5 + overallIntensity * 2.5;
+// 						ctx.shadowColor = isBass ? colors.bassMain : colors.midMain;
+// 					}
+
+// 					// Pre-calculate trig functions
+// 					const cosAngle = Math.cos(angle);
+// 					const sinAngle = Math.sin(angle);
+
+// 					ctx.beginPath();
+// 					ctx.moveTo(
+// 						centerX + cosAngle * innerRadius,
+// 						centerY + sinAngle * innerRadius,
+// 					);
+// 					ctx.lineTo(
+// 						centerX + cosAngle * outerRadius,
+// 						centerY + sinAngle * outerRadius,
+// 					);
+// 					ctx.stroke();
+
+// 					// Reset shadow
+// 					if (overallIntensity > 0.35) {
+// 						ctx.shadowBlur = 0;
+// 					}
+// 				}
+
+// 				ctx.globalAlpha = 1;
+// 			},
+// 			[],
+// 		);
+
+// 		useEffect(() => {
+// 			if (!isPlaying) {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 					animationRef.current = null;
+// 				}
+// 				if (audioElementRef.current) {
+// 					audioElementRef.current.pause();
+// 				}
+// 				// Quick canvas clear
+// 				const canvas = canvasRef.current;
+// 				if (canvas) {
+// 					const ctx = canvas.getContext("2d");
+// 					if (ctx) {
+// 						ctx.clearRect(0, 0, canvas.width, canvas.height);
+// 					}
+// 				}
+// 				return;
+// 			}
+
+// 			initializeAudio().then(() => {
+// 				if (audioElementRef.current && isPlaying) {
+// 					audioElementRef.current.play().catch(console.error);
+// 					animationRef.current = requestAnimationFrame(drawVisualization);
+// 				}
+// 			});
+
+// 			return () => {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 				}
+// 			};
+// 		}, [audioUrl, isPlaying, initializeAudio, drawVisualization]);
+
+// 		useEffect(() => {
+// 			return () => {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 				}
+// 				if (audioElementRef.current) {
+// 					audioElementRef.current.pause();
+// 					audioElementRef.current.src = "";
+// 				}
+// 				if (audioContextRef.current?.state !== "closed") {
+// 					audioContextRef.current?.close();
+// 				}
+// 			};
+// 		}, []);
+
+// 		return (
+// 			<chakra.canvas
+// 				ref={canvasRef}
+// 				position="absolute"
+// 				top="50%"
+// 				left="50%"
+// 				width="180px"
+// 				height="180px"
+// 				transform="translate(-50%, -50%)"
+// 				zIndex={0}
+// 				pointerEvents="none"
+// 				style={{
+// 					maxWidth: "180px",
+// 					maxHeight: "180px",
+// 				}}
+// 			/>
+// 		);
+// 	},
+// );
+
+// const CircularWaveformVisualizer = memo(
+// 	({ audioUrl, isPlaying }: CircularWaveformVisualizerProps) => {
+// 		const canvasRef = useRef<HTMLCanvasElement>(null);
+// 		const animationRef = useRef<number | null>(null);
+// 		const audioContextRef = useRef<AudioContext | null>(null);
+// 		const analyserRef = useRef<AnalyserNode | null>(null);
+// 		const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+// 		const audioElementRef = useRef<HTMLAudioElement | null>(null);
+// 		const gainNodeRef = useRef<GainNode | null>(null);
+// 		const lastFrameTime = useRef<number>(0);
+// 		const audioHistory = useRef<number[]>(new Array(30).fill(0));
+
+// 		const initializeAudio = useCallback(async () => {
+// 			if (!audioUrl) return;
+
+// 			try {
+// 				if (!audioContextRef.current) {
+// 					audioContextRef.current = new (window.AudioContext ||
+// 						(window as any).webkitAudioContext)();
+// 				}
+
+// 				const audioContext = audioContextRef.current;
+// 				if (audioContext.state === "suspended") {
+// 					await audioContext.resume();
+// 				}
+
+// 				if (!audioElementRef.current) {
+// 					audioElementRef.current = new Audio();
+// 					audioElementRef.current.crossOrigin = "anonymous";
+// 					audioElementRef.current.preload = "auto";
+// 					audioElementRef.current.volume = 1.0;
+// 				}
+
+// 				const audio = audioElementRef.current;
+
+// 				if (!sourceRef.current && audio) {
+// 					analyserRef.current = audioContext.createAnalyser();
+// 					analyserRef.current.fftSize = 256;
+// 					analyserRef.current.smoothingTimeConstant = 0.3;
+// 					analyserRef.current.minDecibels = -90;
+// 					analyserRef.current.maxDecibels = -10;
+
+// 					gainNodeRef.current = audioContext.createGain();
+// 					gainNodeRef.current.gain.value = 0;
+
+// 					sourceRef.current = audioContext.createMediaElementSource(audio);
+// 					sourceRef.current.connect(analyserRef.current);
+// 					analyserRef.current.connect(gainNodeRef.current);
+// 					gainNodeRef.current.connect(audioContext.destination);
+// 				}
+
+// 				if (audio.src !== audioUrl) {
+// 					audio.src = audioUrl;
+// 				}
+// 			} catch (error) {
+// 				console.error("Error initializing audio:", error);
+// 			}
+// 		}, [audioUrl]);
+
+// 		const drawVisualization = useCallback((currentTime: number) => {
+// 			if (!canvasRef.current || !analyserRef.current) return;
+
+// 			// 30fps for performance
+// 			if (currentTime - lastFrameTime.current < 33) {
+// 				animationRef.current = requestAnimationFrame(drawVisualization);
+// 				return;
+// 			}
+// 			lastFrameTime.current = currentTime;
+
+// 			const canvas = canvasRef.current;
+// 			const ctx = canvas.getContext("2d");
+// 			if (!ctx) return;
+
+// 			// Set up canvas with proper device pixel ratio
+// 			const rect = canvas.getBoundingClientRect();
+// 			const dpr = window.devicePixelRatio || 1;
+
+// 			if (
+// 				canvas.width !== rect.width * dpr ||
+// 				canvas.height !== rect.height * dpr
+// 			) {
+// 				canvas.width = rect.width * dpr;
+// 				canvas.height = rect.height * dpr;
+// 				canvas.style.width = rect.width + "px";
+// 				canvas.style.height = rect.height + "px";
+// 				ctx.scale(dpr, dpr);
+// 			}
+
+// 			const size = Math.min(rect.width, rect.height);
+// 			ctx.clearRect(0, 0, rect.width, rect.height);
+
+// 			const centerX = rect.width / 2;
+// 			const centerY = rect.height / 2;
+// 			const avatarRadius = 70;
+
+// 			// Tighter spacing - keep circles closer to avatar to prevent clipping
+// 			const baseRadius = avatarRadius + 4; // First ring very close to avatar
+// 			const secondRadius = avatarRadius + 4; // Second ring only 10 units away
+
+// 			const analyser = analyserRef.current;
+// 			const bufferLength = analyser.frequencyBinCount;
+// 			const dataArray = new Uint8Array(bufferLength);
+// 			analyser.getByteFrequencyData(dataArray);
+
+// 			// Process multiple frequency bands for richer visualization
+// 			const bassRange = dataArray.slice(0, 10);
+// 			const midRange = dataArray.slice(10, 40);
+// 			const highRange = dataArray.slice(40, 80);
+
+// 			const bassLevel =
+// 				bassRange.reduce((sum, val) => sum + val, 0) / (bassRange.length * 255);
+// 			const midLevel =
+// 				midRange.reduce((sum, val) => sum + val, 0) / (midRange.length * 255);
+// 			const highLevel =
+// 				highRange.reduce((sum, val) => sum + val, 0) / (highRange.length * 255);
+
+// 			const overallIntensity =
+// 				(bassLevel * 1.5 + midLevel * 1.2 + highLevel * 0.8) / 3;
+
+// 			audioHistory.current.shift();
+// 			audioHistory.current.push(overallIntensity);
+
+// 			const smoothAverage =
+// 				audioHistory.current.reduce((a, b) => a + b, 0) /
+// 				audioHistory.current.length;
+// 			const time = currentTime * 0.001;
+// 			const enhancedIntensity = Math.pow(overallIntensity * 2, 0.6);
+
+// 			// Draw tightly spaced reactive rings closer to avatar
+// 			drawReactiveRing(
+// 				ctx,
+// 				centerX,
+// 				centerY,
+// 				baseRadius,
+// 				enhancedIntensity,
+// 				bassLevel,
+// 				time,
+// 				0,
+// 				"bass",
+// 			);
+// 			drawReactiveRing(
+// 				ctx,
+// 				centerX,
+// 				centerY,
+// 				secondRadius,
+// 				enhancedIntensity,
+// 				midLevel,
+// 				time * 1.3,
+// 				Math.PI / 6,
+// 				"bass",
+// 			);
+
+// 			animationRef.current = requestAnimationFrame(drawVisualization);
+// 		}, []);
+
+// 		const drawReactiveRing = useCallback(
+// 			(
+// 				ctx: CanvasRenderingContext2D,
+// 				centerX: number,
+// 				centerY: number,
+// 				radius: number,
+// 				overallIntensity: number,
+// 				frequencyIntensity: number,
+// 				time: number,
+// 				phaseOffset: number,
+// 				type: "bass" | "mid",
+// 			) => {
+// 				const bars = type === "bass" ? 48 : 36;
+// 				const colors =
+// 					type === "bass"
+// 						? {
+// 								main: `rgba(139, 92, 246, ${Math.min(1, 0.7 + overallIntensity * 0.3)})`,
+// 								accent: `rgba(99, 102, 241, ${Math.min(1, 0.5 + overallIntensity * 0.3)})`,
+// 							}
+// 						: {
+// 								main: `rgba(99, 102, 241, ${Math.min(1, 0.6 + overallIntensity * 0.4)})`,
+// 								accent: `rgba(139, 92, 246, ${Math.min(1, 0.4 + overallIntensity * 0.4)})`,
+// 							};
+
+// 				// Reduced expansion to keep within bounds
+// 				const baseExpansion = frequencyIntensity * 15; // Reduced from 25
+// 				const pulseExpansion =
+// 					Math.sin(time * 8 + phaseOffset) * overallIntensity * 5; // Reduced from 8
+// 				const randomVariation = Math.sin(time * 3) * overallIntensity * 3; // Reduced from 5
+
+// 				for (let i = 0; i < bars; i++) {
+// 					const angle = (i / bars) * Math.PI * 2 + phaseOffset;
+
+// 					const angleVariation = Math.sin(angle * 3 + time * 2) * 0.3;
+// 					const timeVariation = Math.sin(time * 5 + i * 0.1) * 0.2;
+// 					const intensityBoost = Math.pow(frequencyIntensity + 0.1, 1.5);
+
+// 					const amplitude =
+// 						(frequencyIntensity + angleVariation + timeVariation) *
+// 						intensityBoost;
+// 					const barHeight = Math.max(
+// 						3,
+// 						baseExpansion * amplitude + pulseExpansion + randomVariation,
+// 					);
+
+// 					// Constrain bars to stay within safe bounds
+// 					const maxBarHeight = 12; // Maximum bar height to prevent clipping
+// 					const constrainedBarHeight = Math.min(barHeight, maxBarHeight);
+
+// 					const innerRadius = Math.max(
+// 						radius - constrainedBarHeight / 2,
+// 						radius - 8,
+// 					);
+// 					const outerRadius = Math.min(
+// 						radius + constrainedBarHeight / 2,
+// 						radius + 8,
+// 					);
+
+// 					if (outerRadius > innerRadius) {
+// 						const baseOpacity = type === "bass" ? 0.8 : 0.6;
+// 						const dynamicOpacity = Math.min(
+// 							1,
+// 							baseOpacity + overallIntensity * 0.4,
+// 						);
+
+// 						const useMainColor = i % 2 === 0 || overallIntensity > 0.5;
+// 						ctx.strokeStyle = useMainColor ? colors.main : colors.accent;
+
+// 						ctx.lineWidth = Math.max(1.5, 2 + overallIntensity * 2); // Slightly reduced line width
+// 						ctx.lineCap = "round";
+// 						ctx.globalAlpha = dynamicOpacity;
+
+// 						if (overallIntensity > 0.4) {
+// 							ctx.shadowBlur = 2 + overallIntensity * 3; // Reduced glow
+// 							ctx.shadowColor = colors.main;
+// 						}
+
+// 						const x1 = centerX + Math.cos(angle) * innerRadius;
+// 						const y1 = centerY + Math.sin(angle) * innerRadius;
+// 						const x2 = centerX + Math.cos(angle) * outerRadius;
+// 						const y2 = centerY + Math.sin(angle) * outerRadius;
+
+// 						ctx.beginPath();
+// 						ctx.moveTo(x1, y1);
+// 						ctx.lineTo(x2, y2);
+// 						ctx.stroke();
+
+// 						ctx.shadowBlur = 1;
+// 					}
+// 				}
+
+// 				ctx.globalAlpha = 1;
+// 			},
+// 			[],
+// 		);
+
+// 		useEffect(() => {
+// 			if (!isPlaying) {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 					animationRef.current = null;
+// 				}
+// 				if (audioElementRef.current) {
+// 					audioElementRef.current.pause();
+// 				}
+// 				if (canvasRef.current) {
+// 					const ctx = canvasRef.current.getContext("2d");
+// 					if (ctx) {
+// 						const rect = canvasRef.current.getBoundingClientRect();
+// 						ctx.clearRect(0, 0, rect.width, rect.height);
+// 					}
+// 				}
+// 				return;
+// 			}
+
+// 			initializeAudio().then(() => {
+// 				if (audioElementRef.current && isPlaying) {
+// 					audioElementRef.current.play().catch(console.error);
+// 					animationRef.current = requestAnimationFrame(drawVisualization);
+// 				}
+// 			});
+
+// 			return () => {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 				}
+// 			};
+// 		}, [audioUrl, isPlaying, initializeAudio, drawVisualization]);
+
+// 		useEffect(() => {
+// 			return () => {
+// 				if (animationRef.current) {
+// 					cancelAnimationFrame(animationRef.current);
+// 				}
+// 				if (audioElementRef.current) {
+// 					audioElementRef.current.pause();
+// 					audioElementRef.current.src = "";
+// 				}
+// 				if (audioContextRef.current?.state !== "closed") {
+// 					audioContextRef.current?.close();
+// 				}
+// 			};
+// 		}, []);
+
+// 		return (
+// 			<chakra.canvas
+// 				ref={canvasRef}
+// 				position="absolute"
+// 				top="50%"
+// 				left="50%"
+// 				width="180px"
+// 				height="180px"
+// 				transform="translate(-50%, -50%)"
+// 				zIndex={0}
+// 				pointerEvents="none"
+// 				style={{
+// 					maxWidth: "180px",
+// 					maxHeight: "180px",
+// 				}}
+// 			/>
+// 		);
+// 	},
+// );
 
 function ChatContainer({
 	themeParsed,
@@ -312,7 +1422,6 @@ function ChatContainer({
 			revalidateOnFocus: false,
 			revalidateOnMount: false,
 			revalidateOnReconnect: false,
-			// fallbackData: initialInteractionsParsed,
 		},
 	);
 
@@ -355,33 +1464,32 @@ function ChatContainer({
 		<>
 			<style>
 				{`
-											.github-light {
-												background-color: transparent !important;
-											}
+					.github-light {
+						background-color: transparent !important;
+					}
 
-											.github-dark {
-												background-color: transparent !important;
-											}
+					.github-dark {
+						background-color: transparent !important;
+					}
 
-										.shiki {
-											white-space: pre-wrap;
-											outline: none;
-											word-break: break-all;
-											overflow: auto;
-											font-family: monospace;
-											font-size: 14px;
-											background-color: transparent;
-										}
+				.shiki {
+					white-space: pre-wrap;
+					outline: none;
+					word-break: break-all;
+					overflow: auto;
+					font-family: monospace;
+					font-size: 14px;
+					background-color: transparent;
+				}
 
-										@layer tokens {
-											:host, .light, .dark {
-											  ${Object.keys(themeParsed)
-													.map((key) => `${key}: ${themeParsed[key]};`)
-													.join("\n")}
-											}
-										}
-
-										`}
+				@layer tokens {
+					:host, .light, .dark {
+					  ${Object.keys(themeParsed)
+							.map((key) => `${key}: ${themeParsed[key]};`)
+							.join("\n")}
+					}
+				}
+				`}
 			</style>
 			<Stack
 				py="4"
@@ -452,6 +1560,140 @@ function ChatContainer({
 	);
 }
 
+// Updated ChatHeader with optimized circular waveform visualizer
+function ChatHeader({
+	headerConfig,
+	playingUrl,
+	TTS,
+	setTTS,
+	stopAudio,
+	agentName,
+	fullScreenRef,
+	expanded,
+	setExpanded,
+}: {
+	playingUrl: string;
+	headerConfig: HeaderConfig;
+	TTS: boolean;
+	setTTS: React.Dispatch<SetStateAction<boolean>>;
+	stopAudio: () => void;
+	agentName: string;
+	fullScreenRef: RefObject<HTMLDivElement>;
+	expanded: boolean;
+	setExpanded: React.Dispatch<SetStateAction<boolean>>;
+}) {
+	useEffect(() => {
+		document.addEventListener("fullscreenchange", () => {
+			if (document.fullscreenElement) {
+				setExpanded(true);
+			} else {
+				setExpanded(false);
+			}
+		});
+	}, []);
+
+	function openFullscreen(ref: RefObject<HTMLDivElement>) {
+		if (document.fullscreenElement) {
+			document.exitFullscreen();
+			return;
+		}
+
+		setExpanded(true);
+		const elem = ref?.current as HTMLDivElement;
+		if (!elem) return;
+		if (elem.requestFullscreen) {
+			elem.requestFullscreen();
+		} else if ((elem as any).webkitRequestFullscreen) {
+			(elem as any).webkitRequestFullscreen();
+		} else if ((elem as any).msRequestFullscreen) {
+			(elem as any).msRequestFullscreen();
+		}
+	}
+
+	return (
+		<>
+			<Group justify="end" alignSelf="end">
+				<IconButton
+					colorPalette={"gray"}
+					bg={{ _hover: "gray.100", base: "gray.200" }}
+					opacity={0.8}
+					color="gray.700"
+					variant="solid"
+					rounded="full"
+					transform="scale(0.65)"
+					onClick={() => {
+						openFullscreen(fullScreenRef);
+					}}
+				>
+					{expanded ? <LuShrink /> : <LuExpand />}
+				</IconButton>
+			</Group>
+			<Stack w="100%" py="12" flex="0 0 auto">
+				{headerConfig.showAvatar ? (
+					<Box position="relative" alignSelf="center">
+						<CircularWaveformVisualizer
+							audioUrl={playingUrl}
+							isPlaying={!!playingUrl}
+						/>
+						<Avatar.Root
+							shape="full"
+							w={140}
+							h={140}
+							shadow={"2xl"}
+							position="relative"
+							zIndex={1}
+						>
+							<Avatar.Fallback />
+							<Avatar.Image src={headerConfig?.avatarUrl || avatarUrl} />
+
+							<Float placement="bottom-end" offsetX="4" offsetY="4">
+								<div>
+									<IconButton
+										colorPalette={"gray"}
+										bg={{ _hover: "gray.100", base: "gray.200" }}
+										opacity={0.8}
+										color="gray.700"
+										variant="solid"
+										rounded="full"
+										transform="scale(0.65)"
+										onClick={() => {
+											if (TTS) stopAudio();
+											setTTS((prev) => !prev);
+										}}
+									>
+										{TTS ? <LuVolume2 /> : <LuVolumeOff />}
+									</IconButton>
+								</div>
+							</Float>
+						</Avatar.Root>
+					</Box>
+				) : null}
+				<Box>
+					<Heading
+						textAlign={"center"}
+						size="lg"
+						color={"var(--ts-chat-fg, black)"}
+					>
+						{agentName || "Agent"}
+					</Heading>
+					<Text
+						fontWeight={500}
+						color="gray.600"
+						fontSize="xs"
+						textAlign="center"
+					>
+						powered by{" "}
+						<Text asChild>
+							<a href="https://trueselph.com">TrueSelph</a>
+						</Text>{" "}
+						&copy;
+					</Text>
+				</Box>
+			</Stack>
+		</>
+	);
+}
+
 export function VoiceChatInput({
 	stopAudio,
 	setDefaultMode,
@@ -467,7 +1709,6 @@ export function VoiceChatInput({
 	recordingBlob,
 }: {
 	stopAudio: () => void;
-	// sendMessage: (message: string) => void;
 	setTranscribeContent: (content: string) => void;
 	agentId: string;
 	sessionId: string;
@@ -480,14 +1721,6 @@ export function VoiceChatInput({
 	isRecording: boolean;
 	audioData: Uint8Array<ArrayBufferLike> | null;
 }) {
-	// const {
-	// 	isRecordingInProgress: isRecording,
-	// 	startRecording,
-	// 	stopRecording,
-	// 	audioData,
-	// 	recordedBlob: recordingBlob,
-	// } = recorderControls;
-
 	const handleToggleRecording = () => {
 		stopAudio();
 		if (isRecording) {
@@ -537,7 +1770,7 @@ export function VoiceChatInput({
 				<LuKeyboard />
 			</IconButton>
 			<Box position="relative">
-				<FluidAudioVisualizer audioData={audioData} isRecording={isRecording} />
+				<IconAudioVisualizer audioData={audioData} isPlaying={isRecording} />
 				<IconButton
 					variant={isRecording ? "solid" : "subtle"}
 					colorScheme={isRecording ? "red" : "blue"}
@@ -561,346 +1794,6 @@ export function VoiceChatInput({
 	);
 }
 
-interface FluidAudioVisualizerProps {
-	audioData: Uint8Array | null;
-	isRecording: boolean;
-}
-
-const FluidAudioVisualizer = ({
-	audioData,
-	isRecording,
-}: FluidAudioVisualizerProps) => {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const animationRef = useRef<number | null>(null);
-	const noiseOffsetRef = useRef(0);
-	const audioHistoryRef = useRef<number[]>(new Array(60).fill(0));
-
-	useEffect(() => {
-		if (!canvasRef.current) return;
-
-		const canvas = canvasRef.current;
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-
-		// Set canvas dimensions with device pixel ratio
-		const updateCanvasSize = () => {
-			const rect = canvas.getBoundingClientRect();
-			const dpr = window.devicePixelRatio || 1;
-
-			canvas.width = rect.width * dpr;
-			canvas.height = rect.height * dpr;
-
-			ctx.scale(dpr, dpr);
-			canvas.style.width = `${rect.width}px`;
-			canvas.style.height = `${rect.height}px`;
-		};
-
-		updateCanvasSize();
-		window.addEventListener("resize", updateCanvasSize);
-
-		let time = 0;
-
-		const animate = () => {
-			animationRef.current = requestAnimationFrame(animate);
-			time += 0.016; // ~60fps timing
-			noiseOffsetRef.current += 0.01;
-
-			// Clear canvas
-			ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-			const size = Math.min(canvas.clientWidth, canvas.clientHeight);
-			const centerX = canvas.clientWidth / 2;
-			const centerY = canvas.clientHeight / 2;
-
-			if (isRecording) {
-				const audioLevel = getAudioLevel(audioData);
-				updateAudioHistory(audioLevel);
-				drawFluidVisualization(ctx, centerX, centerY, size, time, audioLevel);
-			}
-		};
-
-		animate();
-
-		return () => {
-			if (animationRef.current) {
-				cancelAnimationFrame(animationRef.current);
-			}
-			window.removeEventListener("resize", updateCanvasSize);
-		};
-	}, [audioData, isRecording]);
-
-	const getAudioLevel = (audioData: Uint8Array | null): number => {
-		if (!audioData || audioData.length === 0) return 0;
-
-		// Calculate RMS (Root Mean Square) for more sensitive audio detection
-		let sum = 0;
-		for (let i = 0; i < audioData.length; i++) {
-			const normalizedValue = (audioData[i] - 128) / 128; // Center around 0
-			sum += normalizedValue * normalizedValue;
-		}
-		const rms = Math.sqrt(sum / audioData.length);
-
-		// Apply exponential scaling for higher sensitivity
-		return Math.pow(Math.min(rms * 3, 1), 0.5);
-	};
-
-	const updateAudioHistory = (currentLevel: number) => {
-		audioHistoryRef.current.shift();
-		audioHistoryRef.current.push(currentLevel);
-	};
-
-	const drawFluidVisualization = (
-		ctx: CanvasRenderingContext2D,
-		centerX: number,
-		centerY: number,
-		size: number,
-		time: number,
-		audioLevel: number,
-	) => {
-		const baseRadius = size * 0.28;
-		const maxExpansion = size * 0.25;
-
-		// Create multiple fluid layers with different characteristics
-		drawFluidLayer(
-			ctx,
-			centerX,
-			centerY,
-			baseRadius,
-			maxExpansion,
-			time,
-			audioLevel,
-			0,
-			"primary",
-		);
-		drawFluidLayer(
-			ctx,
-			centerX,
-			centerY,
-			baseRadius * 0.85,
-			maxExpansion * 0.7,
-			time * 1.3,
-			audioLevel,
-			Math.PI / 6,
-			"secondary",
-		);
-		drawFluidLayer(
-			ctx,
-			centerX,
-			centerY,
-			baseRadius * 0.7,
-			maxExpansion * 0.5,
-			time * 0.8,
-			audioLevel,
-			Math.PI / 3,
-			"tertiary",
-		);
-
-		// Add inner core
-		drawInnerCore(ctx, centerX, centerY, baseRadius * 0.4, audioLevel, time);
-	};
-
-	const drawFluidLayer = (
-		ctx: CanvasRenderingContext2D,
-		centerX: number,
-		centerY: number,
-		baseRadius: number,
-		maxExpansion: number,
-		time: number,
-		audioLevel: number,
-		phaseOffset: number,
-		layer: "primary" | "secondary" | "tertiary",
-	) => {
-		const points: { x: number; y: number }[] = [];
-		const numPoints = 128; // Higher resolution for smoother curves
-
-		// Get average audio level from history for smoother transitions
-		const avgAudioLevel =
-			audioHistoryRef.current.reduce((a, b) => a + b, 0) /
-			audioHistoryRef.current.length;
-		const smoothAudioLevel = audioLevel * 0.3 + avgAudioLevel * 0.7;
-
-		// Generate fluid points using multiple noise octaves
-		for (let i = 0; i < numPoints; i++) {
-			const angle = (i / numPoints) * Math.PI * 2 + phaseOffset;
-
-			// Multiple octaves of noise for organic movement
-			const noise1 = simplex2D(
-				Math.cos(angle) * 0.5 + time * 0.8 + noiseOffsetRef.current,
-				Math.sin(angle) * 0.5 + time * 0.8,
-			);
-			const noise2 =
-				simplex2D(
-					Math.cos(angle) * 1.2 + time * 1.2 + noiseOffsetRef.current * 1.5,
-					Math.sin(angle) * 1.2 + time * 1.2,
-				) * 0.5;
-			const noise3 =
-				simplex2D(
-					Math.cos(angle) * 2.1 + time * 0.6 + noiseOffsetRef.current * 0.8,
-					Math.sin(angle) * 2.1 + time * 0.6,
-				) * 0.25;
-
-			const combinedNoise = noise1 + noise2 + noise3;
-
-			// Audio-reactive radius with high sensitivity
-			const audioExpansion =
-				smoothAudioLevel * maxExpansion * (1.5 + combinedNoise * 0.8);
-			const finalRadius = baseRadius + audioExpansion;
-
-			// Add micro-trembles based on high-frequency audio
-			const trembleIntensity = audioLevel * 8;
-			const trembleX = simplex2D(angle * 8 + time * 15, 0) * trembleIntensity;
-			const trembleY = simplex2D(angle * 8 + time * 15, 100) * trembleIntensity;
-
-			const x = centerX + Math.cos(angle) * finalRadius + trembleX;
-			const y = centerY + Math.sin(angle) * finalRadius + trembleY;
-
-			points.push({ x, y });
-		}
-
-		// Draw smooth curves using bezier paths
-		ctx.beginPath();
-		ctx.moveTo(points[0].x, points[0].y);
-
-		for (let i = 0; i < points.length; i++) {
-			const current = points[i];
-			const next = points[(i + 1) % points.length];
-			const controlPoint1X = current.x + (next.x - current.x) * 0.4;
-			const controlPoint1Y = current.y + (next.y - current.y) * 0.4;
-			const controlPoint2X = next.x - (next.x - current.x) * 0.4;
-			const controlPoint2Y = next.y - (next.y - current.y) * 0.4;
-
-			ctx.bezierCurveTo(
-				controlPoint1X,
-				controlPoint1Y,
-				controlPoint2X,
-				controlPoint2Y,
-				next.x,
-				next.y,
-			);
-		}
-
-		ctx.closePath();
-
-		// Apply layer-specific styling
-		const alpha = getLayerAlpha(layer, smoothAudioLevel);
-		const colors = getLayerColors(layer);
-
-		// Create radial gradient for oil-like appearance
-		const gradient = ctx.createRadialGradient(
-			centerX,
-			centerY,
-			0,
-			centerX,
-			centerY,
-			baseRadius + maxExpansion,
-		);
-		gradient.addColorStop(0, colors.center);
-		gradient.addColorStop(0.6, colors.mid);
-		gradient.addColorStop(1, colors.outer);
-
-		ctx.fillStyle = gradient;
-		ctx.globalAlpha = alpha;
-		ctx.fill();
-
-		// Add subtle stroke for definition
-		ctx.strokeStyle = colors.stroke;
-		ctx.lineWidth = 0.5;
-		ctx.globalAlpha = alpha * 0.6;
-		ctx.stroke();
-
-		ctx.globalAlpha = 1;
-	};
-
-	const drawInnerCore = (
-		ctx: CanvasRenderingContext2D,
-		centerX: number,
-		centerY: number,
-		radius: number,
-		audioLevel: number,
-		time: number,
-	) => {
-		// Pulsing core that reacts to audio
-		const pulseRadius =
-			radius * (1 + audioLevel * 0.5 + Math.sin(time * 8) * 0.1);
-
-		const gradient = ctx.createRadialGradient(
-			centerX,
-			centerY,
-			0,
-			centerX,
-			centerY,
-			pulseRadius,
-		);
-		gradient.addColorStop(0, `rgba(139, 92, 246, ${0.8 + audioLevel * 0.2})`);
-		gradient.addColorStop(0.5, `rgba(99, 102, 241, ${0.4 + audioLevel * 0.3})`);
-		gradient.addColorStop(1, "rgba(139, 92, 246, 0)");
-
-		ctx.beginPath();
-		ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
-		ctx.fillStyle = gradient;
-		ctx.fill();
-	};
-
-	const getLayerAlpha = (layer: string, audioLevel: number): number => {
-		const baseAlpha =
-			{
-				primary: 0.7,
-				secondary: 0.5,
-				tertiary: 0.3,
-			}[layer] || 0.5;
-
-		return Math.min(1, baseAlpha + audioLevel * 0.4);
-	};
-
-	const getLayerColors = (layer: string) => {
-		const colorSets = {
-			primary: {
-				center: "rgba(139, 92, 246, 0.9)",
-				mid: "rgba(99, 102, 241, 0.6)",
-				outer: "rgba(67, 56, 202, 0.1)",
-				stroke: "rgba(139, 92, 246, 0.3)",
-			},
-			secondary: {
-				center: "rgba(124, 58, 237, 0.7)",
-				mid: "rgba(139, 92, 246, 0.4)",
-				outer: "rgba(99, 102, 241, 0.1)",
-				stroke: "rgba(124, 58, 237, 0.2)",
-			},
-			tertiary: {
-				center: "rgba(109, 40, 217, 0.5)",
-				mid: "rgba(124, 58, 237, 0.3)",
-				outer: "rgba(139, 92, 246, 0.1)",
-				stroke: "rgba(109, 40, 217, 0.15)",
-			},
-		};
-
-		// @ts-ignore
-		return colorSets[layer] || colorSets.primary;
-	};
-
-	return (
-		<chakra.canvas
-			ref={canvasRef}
-			position="absolute"
-			top="50%"
-			left="50%"
-			width="140px"
-			height="140px"
-			transform="translate(-50%, -50%)"
-			zIndex={1}
-			pointerEvents="none"
-			filter="blur(0.5px)" // Slight blur for oil-like softness
-		/>
-	);
-};
-
-// Simplified 2D simplex noise function
-function simplex2D(x: number, y: number): number {
-	// Simplified noise implementation - you might want to use a proper library like simplex-noise
-	const sin = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-	return (sin - Math.floor(sin)) * 2 - 1;
-}
-
 function MediaMessage({ message }: { message: ResponseMessage }) {
 	if (message.message_type !== "MEDIA") return null;
 
@@ -913,10 +1806,6 @@ function MediaMessage({ message }: { message: ResponseMessage }) {
 					src={
 						typeof message.data === "string" ? message.data : message.data?.url
 					}
-					// className={`
-					//            ${css({ width: "-webkit-fill-available" })()}
-					//            ${css({ width: "-moz-available" })()}
-					//          `}
 				/>
 			)}
 
@@ -944,15 +1833,11 @@ function MediaMessage({ message }: { message: ResponseMessage }) {
 					/>
 				</Box>
 			)}
-
-			{/* {message.caption && (
-				<FormattedMessage message={message.message.caption} />
-			)} */}
 		</>
 	);
 }
 
-export function Messages({
+export const Messages = memo(function Messages({
 	interactions,
 	playingUrl,
 	playAudio,
@@ -984,11 +1869,9 @@ export function Messages({
 
 	return (
 		<Stack
-			// alignItems={"flex-start"}
 			id="ts-messages"
 			w="100%"
 			ref={messagesWrapperRef}
-			// maxH={"20lh"}
 			overflowY="scroll"
 			px="4"
 			flex="1 1 auto"
@@ -1068,9 +1951,9 @@ export function Messages({
 			</Presence>
 		</Stack>
 	);
-}
+});
 
-function CopyIcon({ value }: { value: string }) {
+const CopyIcon = memo(function CopyIcon({ value }: { value: string }) {
 	const { copied, copy } = useClipboard({
 		value,
 	});
@@ -1089,9 +1972,9 @@ function CopyIcon({ value }: { value: string }) {
 			{!copied ? <LuClipboard /> : <LuClipboardCheck />}
 		</IconButton>
 	);
-}
+});
 
-export function ChatMessage({
+export const ChatMessage = memo(function ChatMessage({
 	sent,
 	interaction,
 	playingUrl,
@@ -1116,124 +1999,137 @@ export function ChatMessage({
 		React.SetStateAction<Interaction | null>
 	>;
 }) {
-	const getMessageContent = (): string => {
+	const messageContent = useMemo(() => {
 		if (!interaction?.response?.message) return "";
-
 		const message = interaction.response.message;
-		if (message.message_type === "TEXT") {
-			return message.content;
+		return message.message_type === "TEXT" ? message.content : "";
+	}, [interaction?.response?.message]);
+
+	const { copied, copy } = useClipboard({ value: messageContent });
+
+	const handleCopy = useCallback(() => copy(), [copy]);
+
+	const handleAudioToggle = useCallback(() => {
+		if (playingUrl === interaction?.response?.audio_url) {
+			stopAudio?.();
+		} else if (interaction?.response?.audio_url) {
+			playAudio?.(interaction.response.audio_url);
 		}
-		return "";
-	};
+	}, [playingUrl, interaction?.response?.audio_url, stopAudio, playAudio]);
 
-	const { copied, copy } = useClipboard({
-		value: getMessageContent(),
-	});
+	const handleDebugToggle = useCallback(() => {
+		setDebuggedInteraction((prev) =>
+			prev?.id === interaction?.id ? null : interaction || null,
+		);
+	}, [setDebuggedInteraction, interaction]);
 
-	const renderer: Partial<ReactRenderer> = {
-		table(content: ComponentChild[]) {
-			return (
-				<Table.Root size="md" maxW="100%" overflowX="auto" my="2">
-					<Table.Header>
-						{(
-							content as unknown as any
-						)[0]?.props?.children?.props?.children?.map(
-							(header: any, index: number) => (
-								<Table.ColumnHeader
-									key={header.key || index}
-									borderColor={
-										"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-									}
-								>
-									{header.props.children}
-								</Table.ColumnHeader>
-							),
-						)}
-					</Table.Header>
-					<Table.Body>
-						{(content as unknown as any)[1]?.props?.children?.map(
-							(row: any, rowIndex: number) => (
-								<Table.Row key={row.key || `row-${rowIndex}`}>
-									{row.props?.children?.map((cell: any, cellIndex: number) => (
-										<Table.Cell
-											borderColor={
-												"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-											}
-											key={cell.key || `cell-${rowIndex}-${cellIndex}`}
-										>
-											{cell.props.children}
-										</Table.Cell>
-									))}
-								</Table.Row>
-							),
-						)}
-					</Table.Body>
-				</Table.Root>
-			);
-		},
-		codespan(code: any) {
-			return <Code>{code}</Code>;
-		},
-		code(snippet: ComponentChild, lang: string | undefined) {
-			return (
-				<Card.Root
-					my="4"
-					overflow="hidden"
-					rounded="xl"
-					borderColor={
-						"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-					}
-				>
-					<Card.Header
-						bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-						color={"var(--ts-input-color, inherit)"}
-						borderColor={
-							"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-						}
-						py="1"
-					>
-						<Flex justify="space-between">
-							<Code
-								bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-								color={"var(--ts-input-color, inherit)"}
-								variant={"plain"}
-							>
-								{lang}
-							</Code>
-							<CopyIcon value={snippet as string} />
-						</Flex>
-					</Card.Header>
-					<Card.Body
-						py="1"
-						// bg="gray.50"
-						bg={"var(--ts-input-bg, var(--chakra-colors-gray-50))"}
-						color={"var(--ts-input-color, inherit)"}
+	const renderer: Partial<ReactRenderer> = useMemo(
+		() => ({
+			table(content: ComponentChild[]) {
+				return (
+					<Table.Root size="md" maxW="100%" overflowX="auto" my="2">
+						<Table.Header>
+							{(
+								content as unknown as any
+							)[0]?.props?.children?.props?.children?.map(
+								(header: any, index: number) => (
+									<Table.ColumnHeader
+										key={header.key || index}
+										borderColor={
+											"var(--ts-chat-bd, var(--global-color-border, currentColor))"
+										}
+									>
+										{header.props.children}
+									</Table.ColumnHeader>
+								),
+							)}
+						</Table.Header>
+						<Table.Body>
+							{(content as unknown as any)[1]?.props?.children?.map(
+								(row: any, rowIndex: number) => (
+									<Table.Row key={row.key || `row-${rowIndex}`}>
+										{row.props?.children?.map(
+											(cell: any, cellIndex: number) => (
+												<Table.Cell
+													borderColor={
+														"var(--ts-chat-bd, var(--global-color-border, currentColor))"
+													}
+													key={cell.key || `cell-${rowIndex}-${cellIndex}`}
+												>
+													{cell.props.children}
+												</Table.Cell>
+											),
+										)}
+									</Table.Row>
+								),
+							)}
+						</Table.Body>
+					</Table.Root>
+				);
+			},
+			codespan(code: any) {
+				return <Code>{code}</Code>;
+			},
+			code(snippet: ComponentChild, lang: string | undefined) {
+				return (
+					<Card.Root
+						my="4"
+						overflow="hidden"
+						rounded="xl"
 						borderColor={
 							"var(--ts-chat-bd, var(--global-color-border, currentColor))"
 						}
 					>
-						<ShikiHighlighter
-							showLanguage={false}
-							style={{
-								overflow: "auto",
-								width: "100%",
-								whiteSpace: "pre-wrap",
-								wordBreak: "break-all",
-							}}
-							language={lang || "text"}
-							delay={150}
-							theme={codeTheme || "github-light"}
+						<Card.Header
+							bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+							color={"var(--ts-input-color, inherit)"}
+							borderColor={
+								"var(--ts-chat-bd, var(--global-color-border, currentColor))"
+							}
+							py="1"
 						>
-							{snippet as string}
-						</ShikiHighlighter>
-					</Card.Body>
-				</Card.Root>
-			);
-		},
-	};
+							<Flex justify="space-between">
+								<Code
+									bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+									color={"var(--ts-input-color, inherit)"}
+									variant={"plain"}
+								>
+									{lang}
+								</Code>
+								<CopyIcon value={snippet as string} />
+							</Flex>
+						</Card.Header>
+						<Card.Body
+							py="1"
+							bg={"var(--ts-input-bg, var(--chakra-colors-gray-50))"}
+							color={"var(--ts-input-color, inherit)"}
+							borderColor={
+								"var(--ts-chat-bd, var(--global-color-border, currentColor))"
+							}
+						>
+							<ShikiHighlighter
+								showLanguage={false}
+								style={{
+									overflow: "auto",
+									width: "100%",
+									whiteSpace: "pre-wrap",
+									wordBreak: "break-all",
+								}}
+								language={lang || "text"}
+								delay={150}
+								theme={codeTheme || "github-light"}
+							>
+								{snippet as string}
+							</ShikiHighlighter>
+						</Card.Body>
+					</Card.Root>
+				);
+			},
+		}),
+		[codeTheme],
+	);
 
-	// Render message content based on message type
-	const renderMessageContent = () => {
+	const renderMessageContent = useCallback(() => {
 		if (!interaction?.response?.message) return null;
 
 		const message = interaction.response.message;
@@ -1272,7 +2168,7 @@ export function ChatMessage({
 		}
 
 		return null;
-	};
+	}, [interaction?.response?.message, renderer]);
 
 	return (
 		<Flex
@@ -1292,12 +2188,7 @@ export function ChatMessage({
 				</Avatar.Root>
 			)}
 
-			<ChatMessageContainer
-				variant={sent ? "sent" : undefined}
-				mt="0"
-				// verticalAlign="ce"
-				// py="0"
-			>
+			<ChatMessageContainer variant={sent ? "sent" : undefined} mt="0">
 				{sent ? (
 					<Markdown
 						value={interaction?.utterance || ""}
@@ -1315,7 +2206,7 @@ export function ChatMessage({
 						<IconButton
 							size="2xs"
 							variant="ghost"
-							onClick={copy}
+							onClick={handleCopy}
 							bg="var(--ts-icon-btn-bg)"
 							color="var(--ts-icon-btn-color)"
 							_hover={{
@@ -1333,13 +2224,7 @@ export function ChatMessage({
 								_hover={{
 									background: "var(--ts-icon-btn-hover-bg)",
 								}}
-								onClick={() => {
-									if (playingUrl === interaction?.response?.audio_url) {
-										stopAudio?.();
-									} else if (interaction?.response?.audio_url) {
-										playAudio?.(interaction.response.audio_url);
-									}
-								}}
+								onClick={handleAudioToggle}
 							>
 								{playingUrl === interaction?.response?.audio_url ? (
 									<LuHeadphoneOff />
@@ -1358,15 +2243,7 @@ export function ChatMessage({
 								_hover={{
 									background: "var(--ts-icon-btn-hover-bg)",
 								}}
-								onClick={() =>
-									setDebuggedInteraction((prev) => {
-										if (prev?.id === interaction.id) {
-											return null;
-										}
-
-										return interaction;
-									})
-								}
+								onClick={handleDebugToggle}
 							>
 								<LuInfo />
 							</IconButton>
@@ -1376,146 +2253,7 @@ export function ChatMessage({
 			</ChatMessageContainer>
 		</Flex>
 	);
-}
-
-export const avatarUrl =
-	"data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20width='50'%20height='50'%20version='1.1'%20viewBox='0%200%20400000%20400000'%3e%3cg%20fill-rule='evenodd'%20stroke='none'%3e%3cpath%20d='M17400%20400c-136%20220%20123%20400%20576%20400%20453%200%20824-180%20824-400%200-220-260-400-576-400-317%200-688%20180-824%20400m363800%200c0%20519%201080%20519%201400%200%20136-220-123-400-576-400-453%200-824%20180-824%20400M13996%201404c-410%20496-351%20596%20355%20596%20467%200%20849-170%20849-376%200-693-704-822-1204-220M385055%201400c-155%20406%2021%20600%20545%20600s700-194%20545-600c-127-330-372-600-545-600-173%200-418%20270-545%20600M11461%202585c-95%20248%20167%20477%20583%20508%20416%2032%20756-172%20756-451%200-629-1100-676-1340-57M8000%205000c-415%20501-357%20600%20352%20600%20490%200%20850-255%20850-600%200-330-158-600-350-600-194%200-576%20270-850%20600m382996-193c-366%20592-20%20895%20835%20728%20626-122%20633-186%2068-654-450-373-705-394-902-74M4880%208102c-372%20450-393%20705-73%20902%20592%20366%20895%2020%20728-835-122-625-186-632-654-67m389920%20498c0%20330%20180%20600%20400%20600%20220%200%20400-270%20400-600%200-330-180-600-400-600-220%200-400%20270-400%20600M2500%2011465c-690%20278-631%201335%2075%201335%20329%200%20549-343%20515-800-33-440-67-786-75-768-8%2017-240%20122-515%20233M0%2017975c0%20454%20180%20825%20400%20825%20220%200%20400-260%20400-576%200-317-180-688-400-824-220-136-400%20123-400%20576m164644%20120305c-4661%201423-11844%207535-11844%2010078%200%20175-315%20930-700%201680-643%201250-700%203270-700%2024960v23600l1378%202800c2445%204966%207013%208866%2012130%2010353%201955%20568%206040%20645%2034754%20650%2017896%203%2032765%20150%2033042%20326%20396%20252%20482%204220%20400%2018494L233000%20249400l-32300%20102-32300%20103v-7954c0-6258-117-8047-550-8406-386-320-3235-424-9500-350l-8950%20110v10000c0%2012863%20572%2014961%205400%2019805%202583%202591%204549%203815%208000%204976%203006%201012%2072983%20913%2076077-108%204645-1532%209346-5339%2011018-8920%202236-4790%202143-3482%202019-28354l-114-23000-1093-2333c-2469-5272-6406-8832-11907-10767-1047-368-9871-544-35000-696l-33600-204v-36799H233000l108%208094c129%209656-1193%208574%2010292%208420l8400-114%20110-10200c118-10712%2053-11250-1843-15182-2022-4192-6650-7863-11867-9415-2993-890-70622-820-73556%2078m117448%20454c-390%20248-483%202383-400%209293L281800%20157000l47575%20102c37796%2080%2047641-2%2047894-400%20540-853%20404-17270-150-17822-560-560-94148-703-95027-145m-255678%20839c-530%20992-550%2015613-24%2017000l390%201026h47177c25948%200%2047462-109%2047810-243%20822-315%20966-17264%20153-18077-954-954-94993-665-95506%20294M281500%20193476c-1135%20296-1065%2017501%2074%2018110%201077%20576%2093775%20576%2094852%200%20728-390%20774-921%20774-9010v-8596l-1026-390c-1018-387-93205-498-94674-114m-255400%20390c-702%20282-721%2017353-20%2018054%20954%20954%2094993%20665%2095506-294%20442-826%20595-16290%20171-17393-237-619-94140-980-95657-368m255992%2054870c-390%20248-483%202383-400%209293L281800%20267000h95600l108-8750c75-6117-30-8915-349-9300-518-623-94090-836-95067-215m-255678%20839c-245%20458-414%203978-414%208626s170%208168%20414%208626c413%20770%2093378%201289%2095353%20530%20822-314%20966-17263%20153-18076-954-954-94993-665-95506%20294M4400%20391557c0%20197%20270%20460%20600%20588%20365%20140%20600%200%20600-358a595%20595%200%2000-600-587c-330%200-600%20161-600%20357m390267-90c-486%20486-277%20912%20333%20678%20330-127%20600-390%20600-588%200-420-551-473-933-90m-3167%203210c-832%20216-940%20923-143%20923%20307%200%20660-270%20788-600%20126-330%20191-580%20142-554-48%2026-402%20130-787%20230M8000%20395200c0%20220%20270%20400%20600%20400%20330%200%20600-180%20600-400%200-220-270-400-600-400-330%200-600%20180-600%20400'%20fill='%23f4f4f4'/%3e%3cpath%20d='M17000%20400c-136%20220-681%20400-1211%20400-692%200-899%20169-734%20600%20163%20423-33%20600-660%20600-786%200-827-80-344-664%20503-608%20473-617-351-104-495%20308-900%20877-900%201264%200%20780-433%20910-1030%20314-507-507-2570%201230-2570%202165%200%20475-273%20647-900%20566-1073-135-2008%20365-1677%20900%20130%20210-2%20333-293%20273-336-70-576%20370-656%201202-81%20840-320%201270-663%201200-767-160-2693%202166-2201%202658%20552%20553%20483%201030-148%201030-296%200-864%20360-1262%20800-398%20440-530%20800-295%20800%20235%200%20520-224%20630-500%20120-298%20215-217%20233%20200%2018%20386-238%20700-568%20700-590%200-820%201103-647%203100%2042%20496-110%20900-338%20900-660%200-574%20362670%2085%20362937%20389%20157%20379%20287-43%20583-380%20265-410%20462-100%20654%20244%20150%20443%20882%20443%201626%200%201277%20532%202164%20900%201502%2093-166%20116-82%2050%20186-63%20270%20145%20750%20463%201068%20319%20320%20410%20640%20200%20712-490%20170%202068%203134%202704%203134%20266%200%20483%20420%20483%20930%200%201150%201550%202670%202726%202670%20480%200%20874%20188%20874%20417%200%20440%20891%201423%202177%202396%20483%20366%20663%20400%20476%2088-165-275-110-500%20123-500%20233%200%20428%20225%20434%20500%205%20275%20680%20860%201500%201300%201493%20802%20365427%201547%20367290%20753%20330-140%201365-220%202300-174%201400%2067%201706-48%201732-650%2017-401%20117-520%20223-261%20227%20558%204116-1327%204431-2148%20110-285%20445-520%20744-520%20320%200%20450-247%20315-600-204-530%20260-730%201292-560%20488%2080%202496-2150%202330-2585-97-250%20457-980%201230-1624%20932-777%201405-1515%201410-2200%204-771%2096-886%20367-458%20266%20420%20436%20153%20640-1000%20151-864%20570-1805%20930-2090%201012-798%201012-368966%200-369765-360-284-786-1237-947-2117-240-1310-348-1455-599-800-252%20656-333%20548-452-600-89-850-342-1360-646-1300-275%2056-500-170-500-500%200-330-270-600-600-600-330%200-600-333-600-741%200-1145-1813-2858-3024-2858-728%200-996-170-854-540%20114-298-180-863-657-1256-476-393-1188-994-1582-1336-654-567-694-562-457%2055%20147%20385%2070%20677-183%20677-244%200-443-227-443-504s-380-740-842-1030c-463-288-722-332-576-96%20156%20253-70%20430-546%20430-556%200-740-188-580-600%20232-605-800-831-2956-646-495%2042-900-110-900-338C381200%20129%20324940%200%20200000%200%2079467%200%2018800%20134%2018800%20400c0%20220-370%20400-824%20400-453%200-712-180-576-400%20136-220%20157-400%2047-400s-310%20180-447%20400m221200%20137803c5218%201552%209845%205223%2011867%209415%201896%203932%201960%204470%201844%2015182l-110%2010200-8400%20113c-11482%20155-10160%201237-10290-8420L233000%20156600h-62800v36800l33600%20204c25129%20152%2033953%20328%2035000%20696%205500%201935%209438%205495%2011907%2010767l1093%202333%20114%2023000c124%2024872%20217%2023564-2020%2028354-1671%203580-6372%207388-11017%208920-3094%201021-73071%201120-76077%20108-3451-1161-5417-2385-8000-4976-4828-4844-5400-6942-5400-19806v-10000l8950-108c6266-75%209115%2029%209500%20350%20434%20360%20550%202146%20550%208410v7953l32300-103%2032300-102%20105-18174c82-14274-4-18242-400-18494-277-176-15146-323-33042-326-28715-5-32800-82-34754-650-5121-1487-9688-5387-12133-10356l-1378-2800V175000c0-21691%2057-23710%20700-24961%20385-749%20700-1505%20700-1680%200-2543%207183-8655%2011844-10078%202934-897%2070563-968%2073556-78m138920%20677c553%20553%20690%2016969%20150%2017822-253%20398-10098%20480-47894%20400L281800%20157000l-108-8972c-83-6910%2010-9045%20400-9293%20880-558%2094468-415%2095028%20145m-255200%20400c813%20813%20670%2017762-153%2018077-348%20134-21862%20243-47810%20243H26780l-390-1026c-527-1387-507-16008%2024-17000%20513-960%2094552-1248%2095506-294m254254%2054310%201026%20390v8596c0%208089-46%208620-774%209010-1077%20576-93775%20576-94852%200-1140-610-1210-17814-74-18110%201469-384%2093656-273%2094674%20114m-254417%20643c424%201103%20270%2016567-171%2017393-513%20960-94552%201248-95506%20294-700-700-682-17772%2020-18055%201517-612%2095420-251%2095657%20368m255402%2054718c320%20384%20424%203182%20349%209300l-108%208750h-95600l-108-8973c-83-6910%2010-9045%20400-9293%20977-621%2094550-408%2095067%20216m-255240%20330c814%20812%20670%2017760-152%2018076-1975%20758-94940%20240-95353-531-245-458-414-3978-414-8626s170-8168%20414-8626c513-960%2094552-1248%2095506-294'%20fill='%23040404'/%3e%3c/g%3e%3c/svg%3e";
-
-function ChatHeader({
-	headerConfig,
-	playingUrl,
-	TTS,
-	setTTS,
-	stopAudio,
-	agentName,
-	fullScreenRef,
-	expanded,
-	setExpanded,
-}: {
-	playingUrl: string;
-	headerConfig: HeaderConfig;
-	TTS: boolean;
-	setTTS: React.Dispatch<SetStateAction<boolean>>;
-	stopAudio: () => void;
-	agentName: string;
-	fullScreenRef: RefObject<HTMLDivElement>;
-	expanded: boolean;
-	setExpanded: React.Dispatch<SetStateAction<boolean>>;
-}) {
-	useEffect(() => {
-		document.addEventListener("fullscreenchange", () => {
-			if (document.fullscreenElement) {
-				setExpanded(true);
-			} else {
-				setExpanded(false);
-			}
-		});
-	}, []);
-
-	function openFullscreen(ref: RefObject<HTMLDivElement>) {
-		if (document.fullscreenElement) {
-			document.exitFullscreen();
-			return;
-		}
-
-		setExpanded(true);
-		const elem = ref?.current as HTMLDivElement;
-		if (!elem) return;
-		if (elem.requestFullscreen) {
-			elem.requestFullscreen();
-			// @ts-ignore
-		} else if (elem!.webkitRequestFullscreen) {
-			/* Safari */
-			// @ts-ignore
-			elem!.webkitRequestFullscreen();
-			// @ts-ignore
-		} else if (elem!.msRequestFullscreen) {
-			/* IE11 */
-			// @ts-ignore
-			elem!.msRequestFullscreen();
-		}
-	}
-
-	return (
-		<>
-			<Group justify="end" alignSelf="end">
-				<IconButton
-					colorPalette={"gray"}
-					bg={{ _hover: "gray.100", base: "gray.200" }}
-					opacity={0.8}
-					color="gray.700"
-					variant="solid"
-					rounded="full"
-					transform="scale(0.65)"
-					onClick={() => {
-						openFullscreen(fullScreenRef);
-					}}
-				>
-					{expanded ? <LuShrink /> : <LuExpand />}
-				</IconButton>
-			</Group>
-			<Stack w="100%" py="12" flex="0 0 auto">
-				{headerConfig.showAvatar ? (
-					<Avatar.Root
-						shape="full"
-						w={140}
-						h={140}
-						shadow={"2xl"}
-						alignSelf={"center"}
-						animation={playingUrl ? "talking 2s infinite" : "none"}
-					>
-						<Avatar.Fallback />
-						<Avatar.Image src={headerConfig?.avatarUrl || avatarUrl} />
-
-						<Float placement="bottom-end" offsetX="4" offsetY="4">
-							<div>
-								<IconButton
-									colorPalette={"gray"}
-									bg={{ _hover: "gray.100", base: "gray.200" }}
-									opacity={0.8}
-									color="gray.700"
-									variant="solid"
-									rounded="full"
-									transform="scale(0.65)"
-									onClick={() => {
-										if (TTS) stopAudio();
-										setTTS((prev) => !prev);
-									}}
-									// p="2"
-									// w="0"
-									// h="0"
-								>
-									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
-								</IconButton>
-							</div>
-						</Float>
-					</Avatar.Root>
-				) : null}
-				<Box>
-					<Heading
-						textAlign={"center"}
-						size="lg"
-						color={"var(--ts-chat-fg, black)"}
-					>
-						{agentName || "Agent"}
-					</Heading>
-					<Text
-						fontWeight={500}
-						color="gray.600"
-						fontSize="xs"
-						textAlign="center"
-					>
-						powered by{" "}
-						<Text asChild>
-							<a href="https://trueselph.com">TrueSelph</a>
-						</Text>{" "}
-						&copy;
-					</Text>
-				</Box>
-			</Stack>
-		</>
-	);
-}
+});
 
 const ChatMessageContainer = chakra("div", {
 	base: {
@@ -1533,7 +2271,6 @@ const ChatMessageContainer = chakra("div", {
 			sent: {
 				px: "4",
 				justifySelf: "flex-end",
-				// shadow: "xs",
 				rounded: "2xl",
 				background: "blue.50",
 				color: "gray.900",
@@ -1702,8 +2439,6 @@ export function ChatInput({
 				controller.current?.signal.addEventListener("abort", () => {
 					socket.onmessage = null;
 					controller.current = new AbortController();
-					// TODO: send an abort message back to jivas
-
 					reject();
 				});
 			}
@@ -1760,9 +2495,6 @@ export function ChatInput({
 					),
 					{
 						...result[0],
-						// id: result[0]?.isFinal
-						// 	? "completed-" + (current?.length || 0)
-						// 	: "stream",
 					},
 				];
 			},
@@ -1812,7 +2544,6 @@ export function ChatInput({
 			if (isStreaming) {
 				controller.current.abort();
 			} else {
-				// if not streaming do a single mutation
 				sendMessage();
 			}
 		} catch (err) {
@@ -1918,8 +2649,6 @@ export function ChatInput({
 								border="none"
 								size="lg"
 								rounded={"lg"}
-								// disabled={streamMutation.status === "pending"}
-								// className={classes.input}
 								rows={1}
 								value={content}
 								onChange={onContentChange}
@@ -1967,7 +2696,6 @@ export function ChatInput({
 								</IconButton>
 
 								<IconButton
-									// variant="default"
 									colorPalette="gray"
 									rounded="lg"
 									size="sm"
@@ -1975,16 +2703,12 @@ export function ChatInput({
 										if (TTS) stopAudio();
 										setTTS((prev) => !prev);
 									}}
-									// p="2"
-									// w="0"
-									// h="0"
 								>
 									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
 								</IconButton>
 							</Flex>
 
 							<IconButton
-								// variant="default"
 								colorPalette="gray"
 								rounded="lg"
 								size="sm"
@@ -1996,68 +2720,8 @@ export function ChatInput({
 							</IconButton>
 						</Flex>
 					</Card.Footer>
-					{/* <Show largerThan="sm" styles={{ display: "none" }}> */}
 				</Card.Root>
 			)}
 		</>
-	);
-}
-
-export default function RadialVisualizer({
-	audioRef,
-}: {
-	audioRef: HTMLAudioElement | null;
-}) {
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-
-	useEffect(() => {
-		if (!canvasRef.current || !audioRef) return;
-		const canvas = canvasRef.current;
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-
-		const audioCtx = new AudioContext();
-		const analyser = audioCtx.createAnalyser();
-		const source = audioCtx.createMediaElementSource(audioRef);
-		source.connect(analyser);
-		analyser.connect(audioCtx.destination);
-
-		analyser.fftSize = 256;
-		const bufferLength = analyser.frequencyBinCount;
-		const dataArray = new Uint8Array(bufferLength);
-
-		function draw() {
-			requestAnimationFrame(draw);
-			analyser.getByteFrequencyData(dataArray);
-
-			ctx?.clearRect(0, 0, canvas.width, canvas.height);
-
-			const cx = canvas.width / 2;
-			const cy = canvas.height / 2;
-			const radius = 50;
-
-			for (let i = 0; i < bufferLength; i++) {
-				const angle = (i / bufferLength) * 2 * Math.PI;
-				const barLength = dataArray[i] / 2;
-				const x = cx + Math.cos(angle) * (radius + barLength);
-				const y = cy + Math.sin(angle) * (radius + barLength);
-
-				ctx?.beginPath();
-				ctx?.arc(x, y, 2, 0, Math.PI * 2);
-				ctx!.fillStyle = `rgba(0, 0, 255, ${dataArray[i] / 255})`;
-				ctx?.fill();
-			}
-		}
-
-		draw();
-	}, [audioRef]);
-
-	return (
-		<canvas
-			ref={canvasRef}
-			width={200}
-			height={200}
-			style={{ position: "absolute", zIndex: -1 }}
-		/>
 	);
 }

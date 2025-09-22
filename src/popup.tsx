@@ -8,7 +8,8 @@ import {
 	Portal,
 } from "@chakra-ui/react";
 import { useState } from "preact/hooks";
-import { avatarUrl, type AppProps, type HeaderConfig } from "./app";
+import { type AppProps, type HeaderConfig } from "./app";
+import { avatarUrl } from "./avatar";
 
 export function Popup({
 	children,
