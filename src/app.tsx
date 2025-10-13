@@ -153,7 +153,10 @@ function getLocalStorage(key: string) {
 	}
 }
 
-function getSessionId(mode: "sessionstorage" | "cookie" | "localstorage") {
+function getSessionId(
+	mode: "sessionstorage" | "cookie" | "localstorage",
+	agentId: string,
+) {
 	try {
 		switch (mode) {
 			case "sessionstorage":
@@ -161,7 +164,7 @@ function getSessionId(mode: "sessionstorage" | "cookie" | "localstorage") {
 			case "cookie":
 				return getCookie("tsSessionId");
 			case "localstorage":
-				return getLocalStorage("tsSessionId");
+				return getLocalStorage(`tsSessionId-${agentId}`);
 			default:
 				return null;
 		}
@@ -174,6 +177,7 @@ function getSessionId(mode: "sessionstorage" | "cookie" | "localstorage") {
 function saveSessionId(
 	id: string,
 	mode: "sessionstorage" | "cookie" | "localstorage",
+	agentId: string,
 ) {
 	switch (mode) {
 		case "sessionstorage":
@@ -183,7 +187,7 @@ function saveSessionId(
 			document.cookie = `tsSessionId=${id}; path=/`;
 			break;
 		case "localstorage":
-			localStorage.setItem("tsSessionId", id);
+			localStorage.setItem(`tsSessionId-${agentId}`, id);
 			break;
 		default:
 			break;
@@ -2330,7 +2334,7 @@ export function ChatInput({
 	) => {
 		const sessionId =
 			arg.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode) ||
+			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
 			undefined;
 		const fullResult = await fetch(`${hostURL}/interact`, {
 			method: "POST",
@@ -2357,10 +2361,11 @@ export function ChatInput({
 				return result;
 			});
 
-		if (!sessionId) {
+		if (!sessionId || fullResult.response?.session_id !== sessionId) {
 			saveSessionId(
 				fullResult.response?.session_id,
 				sessionIdStorage || defaultStorageMode,
+				agentId,
 			);
 		}
 
@@ -2377,7 +2382,7 @@ export function ChatInput({
 	) => {
 		const sessionId =
 			arg.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode) ||
+			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
 			undefined;
 
 		return new Promise((resolve, reject) => {
