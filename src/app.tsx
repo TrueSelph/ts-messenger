@@ -2,6 +2,7 @@ import {
 	Avatar,
 	Box,
 	Image,
+	ScrollArea,
 	Card,
 	chakra,
 	Flex,
@@ -71,6 +72,7 @@ export type HeaderConfig = {
 	showAvatar?: boolean;
 	avatarUrl?: string;
 	show?: boolean;
+	hideExpandButton?: boolean;
 };
 
 function localStorageProvider(agentId?: string, sessionId?: string) {
@@ -1530,10 +1532,17 @@ function ChatContainer({
 						stopAudio={stopAudio}
 						headerConfig={headerConfigParsed}
 						codeTheme={codeTheme}
+						maxWidth={themeParsed["--ts-messages-max-width"] || undefined}
 					/>
 				) : null}
-				<Box mt={data?.length ? "8" : "0"} w="100%" flex="0 0 auto">
-					{data?.length ? null : (
+				<Box
+					mt={data?.length ? "8" : "0"}
+					w="100%"
+					flex="0 0 auto"
+					maxW={themeParsed["--ts-messages-max-width"] || undefined}
+					mx="auto"
+				>
+					{/*{data?.length ? null : (
 						<Text
 							color={"var(--ts-chat-fg, black)"}
 							textAlign="center"
@@ -1543,7 +1552,7 @@ function ChatContainer({
 						>
 							Speak to {agentName}...
 						</Text>
-					)}
+					)}*/}
 					<ChatInput
 						defaultMode="text-first"
 						socket={socket}
@@ -1617,20 +1626,22 @@ function ChatHeader({
 	return (
 		<>
 			<Group justify="end" alignSelf="end">
-				<IconButton
-					colorPalette={"gray"}
-					bg={{ _hover: "gray.100", base: "gray.200" }}
-					opacity={0.8}
-					color="gray.700"
-					variant="solid"
-					rounded="full"
-					transform="scale(0.65)"
-					onClick={() => {
-						openFullscreen(fullScreenRef);
-					}}
-				>
-					{expanded ? <LuShrink /> : <LuExpand />}
-				</IconButton>
+				{!headerConfig.hideExpandButton && (
+					<IconButton
+						colorPalette={"gray"}
+						bg={{ _hover: "gray.100", base: "gray.200" }}
+						opacity={0.8}
+						color="gray.700"
+						variant="solid"
+						rounded="full"
+						transform="scale(0.65)"
+						onClick={() => {
+							openFullscreen(fullScreenRef);
+						}}
+					>
+						{expanded ? <LuShrink /> : <LuExpand />}
+					</IconButton>
+				)}
 			</Group>
 			<Stack w="100%" py="12" flex="0 0 auto">
 				{headerConfig.showAvatar ? (
@@ -1778,7 +1789,7 @@ export function VoiceChatInput({
 				<IconButton
 					variant={isRecording ? "solid" : "subtle"}
 					colorScheme={isRecording ? "red" : "blue"}
-					rounded="full"
+					rounded="3xl"
 					size="2xl"
 					onClick={handleToggleRecording}
 					position="relative"
@@ -1850,6 +1861,7 @@ export const Messages = memo(function Messages({
 	headerConfig,
 	codeTheme,
 	withDebug,
+	maxWidth,
 }: {
 	interactions: Interaction[];
 	playingUrl?: string;
@@ -1859,6 +1871,7 @@ export const Messages = memo(function Messages({
 	headerConfig?: HeaderConfig;
 	codeTheme?: string;
 	withDebug?: boolean;
+	maxWidth?: string;
 }) {
 	const messagesWrapperRef = useRef<HTMLDivElement>(null);
 	const [debuggedInteraction, setDebuggedInteraction] =
@@ -1871,89 +1884,113 @@ export const Messages = memo(function Messages({
 		}
 	}, [messagesWrapperRef.current, interactions]);
 
-	return (
-		<Stack
-			id="ts-messages"
-			w="100%"
-			ref={messagesWrapperRef}
-			overflowY="scroll"
-			px="4"
-			flex="1 1 auto"
-		>
-			{interactions
-				?.filter((interaction) =>
-					!debuggedInteraction
-						? true
-						: debuggedInteraction.id === interaction.id,
-				)
-				?.map?.((interaction) => (
-					<Fragment key={interaction.id}>
-						<ChatMessage
-							sent
-							headerConfig={headerConfig}
-							interaction={interaction}
-							codeTheme={codeTheme}
-							setDebuggedInteraction={setDebuggedInteraction}
-							withDebug={withDebug}
-						/>
-						<ChatMessage
-							headerConfig={headerConfig}
-							playingUrl={playingUrl}
-							playAudio={playAudio}
-							stopAudio={stopAudio}
-							interaction={interaction}
-							setDebuggedInteraction={setDebuggedInteraction}
-							TTS={TTS}
-							codeTheme={codeTheme}
-							withDebug={withDebug}
-						/>
-					</Fragment>
-				))}
+	useEffect(() => {
+		window.dispatchEvent(
+			new CustomEvent("tsminteractionschange", {
+				detail: {
+					interactions,
+				},
+			}),
+		);
+	}, [interactions]);
 
-			<Presence
-				present={!!debuggedInteraction && withDebug}
-				animationStyle={{
-					_open: "scale-fade-in",
-					_closed: "scale-fade-out",
-				}}
-				animationDuration="moderate"
-			>
-				<Box
-					maxW={"100%"}
-					overflow="auto"
-					borderWidth="1px"
-					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-					rounded="lg"
-					px="2"
-				>
-					<Flex justify="end">
-						<CopyIcon value={JSON.stringify(debuggedInteraction, null, 2)} />
-					</Flex>
-					<ShikiHighlighter
-						showLanguage={false}
-						language="json"
-						theme={codeTheme || "github-light"}
-						style={{ outline: "none" }}
+	return (
+		<ScrollArea.Root>
+			<ScrollArea.Viewport ref={messagesWrapperRef}>
+				<ScrollArea.Content>
+					<Stack
+						id="ts-messages"
+						w="100%"
+						// overflowY="scroll"
+						margin="0 auto"
+						px="4"
+						maxW={maxWidth}
 					>
-						{JSON.stringify(debuggedInteraction, null, 2)}
-					</ShikiHighlighter>
-					<Flex justify="end">
-						<IconButton
-							size="2xs"
-							variant="ghost"
-							bg="var(--ts-icon-btn-bg)"
-							color="var(--ts-icon-btn-color)"
-							_hover={{
-								background: "var(--ts-icon-btn-hover-bg)",
+						{interactions
+							?.filter((interaction) =>
+								!debuggedInteraction
+									? true
+									: debuggedInteraction.id === interaction.id,
+							)
+							?.map?.((interaction) => (
+								<Fragment key={interaction.id}>
+									<ChatMessage
+										sent
+										headerConfig={headerConfig}
+										interaction={interaction}
+										codeTheme={codeTheme}
+										setDebuggedInteraction={setDebuggedInteraction}
+										withDebug={withDebug}
+									/>
+									<ChatMessage
+										headerConfig={headerConfig}
+										playingUrl={playingUrl}
+										playAudio={playAudio}
+										stopAudio={stopAudio}
+										interaction={interaction}
+										setDebuggedInteraction={setDebuggedInteraction}
+										TTS={TTS}
+										codeTheme={codeTheme}
+										withDebug={withDebug}
+									/>
+								</Fragment>
+							))}
+
+						<Presence
+							present={!!debuggedInteraction && withDebug}
+							animationStyle={{
+								_open: "scale-fade-in",
+								_closed: "scale-fade-out",
 							}}
-							onClick={() => setDebuggedInteraction(null)}
+							animationDuration="moderate"
 						>
-							<LuArrowUpFromLine />
-						</IconButton>
-					</Flex>
-				</Box>
-			</Presence>
-		</Stack>
+							<Box
+								maxW={"100%"}
+								overflow="auto"
+								borderWidth="1px"
+								borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
+								rounded="lg"
+								px="2"
+							>
+								<Flex justify="end">
+									<CopyIcon
+										value={JSON.stringify(debuggedInteraction, null, 2)}
+									/>
+								</Flex>
+								<ShikiHighlighter
+									showLanguage={false}
+									language="json"
+									theme={codeTheme || "github-light"}
+									style={{ outline: "none" }}
+								>
+									{JSON.stringify(debuggedInteraction, null, 2)}
+								</ShikiHighlighter>
+								<Flex justify="end">
+									<IconButton
+										size="2xs"
+										rounded="3xl"
+										variant="ghost"
+										bg="var(--ts-icon-btn-bg)"
+										color="var(--ts-icon-btn-color)"
+										_hover={{
+											background: "var(--ts-icon-btn-hover-bg)",
+										}}
+										onClick={() => setDebuggedInteraction(null)}
+									>
+										<LuArrowUpFromLine />
+									</IconButton>
+								</Flex>
+							</Box>
+						</Presence>
+					</Stack>
+				</ScrollArea.Content>
+			</ScrollArea.Viewport>
+
+			<ScrollArea.Scrollbar>
+				<ScrollArea.Thumb />
+			</ScrollArea.Scrollbar>
+			<ScrollArea.Corner />
+		</ScrollArea.Root>
 	);
 });
 
@@ -1965,6 +2002,7 @@ const CopyIcon = memo(function CopyIcon({ value }: { value: string }) {
 	return (
 		<IconButton
 			size="2xs"
+			rounded="3xl"
 			variant="ghost"
 			onClick={copy}
 			bg="var(--ts-icon-btn-bg)"
@@ -2208,6 +2246,7 @@ export const ChatMessage = memo(function ChatMessage({
 				{!sent && interaction?.response ? (
 					<Flex mt="xs">
 						<IconButton
+							rounded="3xl"
 							size="2xs"
 							variant="ghost"
 							onClick={handleCopy}
@@ -2221,6 +2260,7 @@ export const ChatMessage = memo(function ChatMessage({
 						</IconButton>
 						{interaction?.response?.audio_url && TTS ? (
 							<IconButton
+								rounded="3xl"
 								size="2xs"
 								variant="ghost"
 								bg="var(--ts-icon-btn-bg)"
@@ -2240,6 +2280,7 @@ export const ChatMessage = memo(function ChatMessage({
 
 						{withDebug && (
 							<IconButton
+								rounded="3xl"
 								size="2xs"
 								variant="ghost"
 								bg="var(--ts-icon-btn-bg)"
@@ -2543,6 +2584,7 @@ export function ChatInput({
 	};
 
 	let controller = useRef<AbortController>(new AbortController());
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 	const handleStreamAction = useCallback(async () => {
 		try {
@@ -2581,6 +2623,32 @@ export function ChatInput({
 	});
 
 	useEffect(() => {
+		const handleSetContent = (e: CustomEvent<{ message: string }>) => {
+			if (e.detail?.message) {
+				setContent(e.detail.message);
+			}
+		};
+
+		const handleSendMessage = () => {
+			sendMessage(content);
+		};
+
+		window.addEventListener(
+			"tssetmsgcontent",
+			handleSetContent as EventListener,
+		);
+		window.addEventListener("tssendmsg", handleSendMessage);
+
+		return () => {
+			window.removeEventListener(
+				"tssetmsgcontent",
+				handleSetContent as EventListener,
+			);
+			window.removeEventListener("tssendmsg", handleSendMessage);
+		};
+	}, [content, sendMessage]);
+
+	useEffect(() => {
 		if (!recordingBlob) return;
 
 		transcribe(recordingBlob).then(async (res) => {
@@ -2608,6 +2676,10 @@ export function ChatInput({
 		clearStalledInteractions();
 	}, []);
 
+	useEffect(() => {
+		if (textareaRef?.current) textareaRef?.current?.focus();
+	}, [textareaRef?.current]);
+
 	return (
 		<>
 			{mode == "voice-first" && (
@@ -2633,7 +2705,7 @@ export function ChatInput({
 					p="0"
 					bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
 					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-					rounded={"lg"}
+					rounded={"3xl"}
 					w="100%"
 					maxW="100%"
 					style={{ overflow: "hidden" }}
@@ -2641,6 +2713,7 @@ export function ChatInput({
 					<Card.Body p="0">
 						{!mediaRecorder ? (
 							<Textarea
+								ref={textareaRef}
 								color={"var(--ts-input-color, black)"}
 								_placeholder={{
 									color: "var(--ts-input-placeholder-color, black)",
@@ -2649,11 +2722,11 @@ export function ChatInput({
 								autoFocus
 								outline={"none"}
 								autoresize
-								maxH="4lh"
+								maxH="14lh"
 								disabled={isMutating || isStreaming}
 								border="none"
 								size="lg"
-								rounded={"lg"}
+								rounded={"3xl"}
 								rows={1}
 								value={content}
 								onChange={onContentChange}
@@ -2688,8 +2761,8 @@ export function ChatInput({
 							<Flex gap="1" justify="start" w="100%" px="2" pb="0">
 								<IconButton
 									variant={isRecording ? "solid" : "subtle"}
+									rounded="3xl"
 									colorPalette={isRecording ? "red" : "gray"}
-									rounded="lg"
 									size="sm"
 									onClick={() => {
 										setDefaultMode("voice-first");
@@ -2702,7 +2775,7 @@ export function ChatInput({
 
 								<IconButton
 									colorPalette="gray"
-									rounded="lg"
+									rounded="3xl"
 									size="sm"
 									onClick={() => {
 										if (TTS) stopAudio();
@@ -2715,7 +2788,7 @@ export function ChatInput({
 
 							<IconButton
 								colorPalette="gray"
-								rounded="lg"
+								rounded="3xl"
 								size="sm"
 								onClick={handleStreamAction}
 								disabled={!(isMutating && !isStreaming) && !content}
