@@ -59,8 +59,22 @@ import {
 	type ResponseMessage,
 	type TextResponeMessage,
 } from "./types";
-import useSWR, { SWRConfig } from "swr";
-import useSWRMutation from "swr/mutation";
+
+// TanStack Query imports
+import {
+	QueryClient,
+	useQuery,
+	useMutation,
+	useQueryClient,
+	useIsRestoring,
+} from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createIDBPersister } from "./persister";
+
+// Remove SWR imports
+// import useSWR, { SWRConfig } from "swr";
+// import useSWRMutation from "swr/mutation";
+
 import type { ComponentChild, RefObject } from "preact";
 import { ReplyIndicator } from "./components/ReplyIndicator";
 import { Popup } from "./popup";
@@ -68,39 +82,30 @@ import { useTranscribe } from "./useTranscribe";
 import { avatarUrl } from "./avatar";
 import { IconAudioVisualizer } from "./IconAudioVisualizer";
 
+// Create Query Client with proper configuration for persistence
+const createQueryClient = () =>
+	new QueryClient({
+		defaultOptions: {
+			queries: {
+				gcTime: 1000 * 60 * 60 * 24, // 24 hours
+				staleTime: 1000 * 60 * 60 * 24, // 24 hours
+				refetchOnWindowFocus: false,
+				refetchOnReconnect: false,
+				refetchOnMount: false,
+				retry: false,
+			},
+		},
+	});
+
+// Create the IndexedDB persister
+const persister = createIDBPersister("trueselph-chat");
+
 export type HeaderConfig = {
 	showAvatar?: boolean;
 	avatarUrl?: string;
 	show?: boolean;
 	hideExpandButton?: boolean;
 };
-
-function localStorageProvider(agentId?: string, sessionId?: string) {
-	return () => {
-		// When initializing, we restore the data from `localStorage` into a map.
-		const map = new Map(
-			JSON.parse(
-				localStorage.getItem(`ts-msgs-${agentId}-${sessionId}`) || "[]",
-			),
-		);
-
-		console.log({ map });
-
-		window.addEventListener("tsmsave", () => {
-			const appCache = JSON.stringify(Array.from(map.entries()));
-			localStorage.setItem(`ts-msgs-${agentId}-${sessionId}`, appCache);
-		});
-
-		// Before unloading the app, we write back all the data into `localStorage`.
-		window.addEventListener("beforeunload", () => {
-			const appCache = JSON.stringify(Array.from(map.entries()));
-			localStorage.setItem(`ts-msgs-${agentId}-${sessionId}`, appCache);
-		});
-
-		// We still use the map for write & read for performance.
-		return map;
-	};
-}
 
 export type AppProps = {
 	agentId: string;
@@ -120,26 +125,37 @@ export type AppProps = {
 };
 
 export function App(props: AppProps) {
+	const [queryClient] = useState(() => createQueryClient());
+
 	return (
-		<SWRConfig
-			value={{
-				provider: !props.useLocalStorageCache
-					? undefined
-					: (localStorageProvider(props.agentId, props.sessionId) as any),
+		<PersistQueryClientProvider
+			client={queryClient}
+			persistOptions={{
+				persister,
+				maxAge: 1000 * 60 * 60 * 24, // 24 hours
+				buster: import.meta.env.DEV ? "dev" : "prod",
+			}}
+			onSuccess={() => {
+				// This will be called when persistence is successful
+				console.log("Persistence successful");
 			}}
 		>
 			<AppContainer
 				{...props}
+				sessionId={
+					props.sessionId || getSessionId("localstorage", props.agentId) || ""
+				}
 				streaming={
 					typeof (props.streaming as string | boolean) == "string"
 						? (props.streaming as unknown as string) === "true"
 						: props.streaming
 				}
 			/>
-		</SWRConfig>
+		</PersistQueryClientProvider>
 	);
 }
 
+// Keep your existing helper functions (getCookie, getLocalStorage, getSessionId, saveSessionId)
 function getCookie(name: string) {
 	const value = `; ${document.cookie}`;
 	const parts = value.split(`; ${name}=`);
@@ -239,6 +255,805 @@ export function AppContainer(props: AppProps) {
 				</>
 			</Provider>
 		</div>
+	);
+}
+
+function ChatContainer({
+	themeParsed,
+	headerConfigParsed,
+	sessionId,
+	initialInteractions,
+	agentName,
+	codeTheme,
+	agentId,
+	streaming,
+	host,
+	instanceId,
+	withDebug,
+	socket,
+	fullScreenRef,
+	sessionIdStorage,
+}: AppProps & {
+	themeParsed: Record<string, string>;
+	headerConfigParsed: HeaderConfig;
+	socket: WebSocket;
+	fullScreenRef: RefObject<HTMLDivElement>;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const queryClient = useQueryClient();
+	const isRestoring = useIsRestoring();
+	const hasInitialized = useRef(false);
+
+	document
+		.getElementsByTagName("html")?.[0]
+		.setAttribute("data-theme", "light");
+	// @ts-ignore
+	document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
+
+	const [TTS, setTTS] = useState(
+		localStorage.getItem("ts-tts-enabled") === "true" || false,
+	);
+	const [playingUrl, setPlayingUrl] = useState("");
+
+	const playAudio = useCallback((audioUrl: string) => {
+		if (audioRef.current) {
+			audioRef.current.pause();
+			audioRef.current = null;
+		}
+
+		const audio = new Audio();
+		audioRef.current = audio;
+
+		audio.addEventListener("playing", () => setPlayingUrl(audioUrl));
+		audio.addEventListener("pause", () => setPlayingUrl(""));
+		audio.addEventListener("ended", () => setPlayingUrl(""));
+
+		audio.src = audioUrl;
+		audio.play().catch((err) => console.error("Error playing audio:", err));
+	}, []);
+
+	useEffect(() => {
+		localStorage.setItem("ts-tts-enabled", TTS ? "true" : "false");
+	}, [TTS]);
+
+	const stopAudio = useCallback(() => {
+		if (audioRef.current) {
+			audioRef.current.pause();
+			audioRef.current.currentTime = 0;
+			setPlayingUrl("");
+		}
+	}, []);
+
+	const initialInteractionsParsed =
+		((typeof initialInteractions === "string"
+			? JSON.parse(initialInteractions)
+			: initialInteractions) as Interaction[]) || [];
+
+	// Query that handles both persistence and initial data
+	const { data: interactions = [] } = useQuery({
+		queryKey: ["interactions", agentId, sessionId],
+		queryFn: () => {
+			// This provides the initial data when no persisted data exists
+			return (
+				initialInteractionsParsed.filter(
+					(interaction) => interaction.id !== "new",
+				) || []
+			);
+		},
+		staleTime: Infinity,
+		gcTime: 1000 * 60 * 60 * 24,
+	});
+
+	const audioRef = useRef<HTMLAudioElement | null>(null);
+
+	// Clean up audio on unmount
+	useEffect(() => {
+		return () => {
+			if (audioRef.current) {
+				audioRef.current.pause();
+				audioRef.current.src = "";
+				audioRef.current = null;
+			}
+		};
+	}, []);
+
+	// Debug: Log when interactions change
+	useEffect(() => {
+		console.log("Interactions updated:", interactions?.length, interactions);
+	}, [interactions]);
+
+	// Initialize data only once after restoration
+	useEffect(() => {
+		if (isRestoring || hasInitialized.current) return;
+
+		const currentData = queryClient.getQueryData<Interaction[]>([
+			"interactions",
+			agentId,
+			sessionId,
+		]);
+		console.log("Data after restoration:", currentData);
+
+		// If we have no data after restoration and we have initial interactions, set them
+		if (
+			(!currentData || currentData.length === 0) &&
+			initialInteractionsParsed.length > 0
+		) {
+			console.log(
+				"Setting initial interactions after restoration (no persisted data)",
+			);
+			queryClient.setQueryData(
+				["interactions", agentId, sessionId],
+				initialInteractionsParsed.filter((i) => i.id !== "new"),
+			);
+		}
+
+		hasInitialized.current = true;
+	}, [isRestoring, queryClient, sessionId, initialInteractionsParsed]);
+
+	useEffect(() => {
+		const listener = () => {
+			queryClient.setQueryData(["interactions", agentId, sessionId], []);
+		};
+
+		window.addEventListener("tsmclearmessages", listener);
+
+		return () => {
+			window.removeEventListener("tsmclearmessages", listener);
+		};
+	}, [queryClient, sessionId]);
+
+	// Show loading state while restoring
+	if (isRestoring) {
+		return (
+			<Stack
+				py="4"
+				px={expanded ? { base: "4", md: "8" } : undefined}
+				alignItems="center"
+				justifyContent="center"
+				h="100%"
+				maxH="100dvh"
+				style={{ background: "var(--ts-chat-bg, white)" }}
+			>
+				<Text>Loading chat history...</Text>
+			</Stack>
+		);
+	}
+
+	return (
+		<>
+			<style>
+				{`
+          .github-light {
+            background-color: transparent !important;
+          }
+
+          .github-dark {
+            background-color: transparent !important;
+          }
+
+        .shiki {
+          white-space: pre-wrap;
+          outline: none;
+          word-break: break-all;
+          overflow: auto;
+          font-family: monospace;
+          font-size: 14px;
+          background-color: transparent;
+        }
+
+        @layer tokens {
+          :host, .light, .dark {
+            ${Object.keys(themeParsed)
+							.map((key) => `${key}: ${themeParsed[key]};`)
+							.join("\n")}
+          }
+        }
+        `}
+			</style>
+			<Stack
+				py="4"
+				px={expanded ? { base: "4", md: "8" } : undefined}
+				alignItems={interactions?.length ? "flex-start" : "center"}
+				justifyContent={interactions?.length ? undefined : "center"}
+				h="100%"
+				maxH="100dvh"
+				style={{ background: "var(--ts-chat-bg, white)" }}
+			>
+				{(headerConfigParsed?.show || !interactions?.length) && (
+					<ChatHeader
+						expanded={expanded}
+						setExpanded={setExpanded}
+						fullScreenRef={fullScreenRef}
+						playingUrl={playingUrl}
+						TTS={TTS}
+						setTTS={setTTS}
+						headerConfig={{
+							...headerConfigParsed,
+							showAvatar: !interactions?.length
+								? true
+								: headerConfigParsed.showAvatar,
+						}}
+						stopAudio={stopAudio}
+						agentName={agentName}
+					/>
+				)}
+				{interactions?.length ? (
+					<Messages
+						TTS={TTS}
+						interactions={interactions || []}
+						playingUrl={playingUrl}
+						playAudio={playAudio}
+						withDebug={withDebug}
+						stopAudio={stopAudio}
+						headerConfig={headerConfigParsed}
+						codeTheme={codeTheme}
+						maxWidth={themeParsed["--ts-messages-max-width"] || undefined}
+					/>
+				) : null}
+				<Box
+					mt={interactions?.length ? "8" : "0"}
+					w="100%"
+					flex="0 0 auto"
+					maxW={themeParsed["--ts-messages-max-width"] || undefined}
+					mx="auto"
+				>
+					<ChatInput
+						defaultMode="text-first"
+						socket={socket}
+						playAudio={playAudio}
+						host={host}
+						streaming={!!streaming}
+						sessionId={sessionId}
+						sessionIdStorage={sessionIdStorage}
+						instanceId={instanceId}
+						agentId={agentId}
+						TTS={TTS}
+						stopAudio={stopAudio}
+						setTTS={setTTS}
+					/>
+				</Box>
+			</Stack>
+		</>
+	);
+}
+
+// Update ChatInput component to use TanStack Query mutations
+export function ChatInput({
+	sessionId,
+	agentId,
+	streaming,
+	playAudio,
+	instanceId,
+	TTS,
+	host,
+	stopAudio,
+	setTTS,
+	socket,
+	defaultMode = "text-first",
+	sessionIdStorage,
+}: {
+	defaultMode: "text-first" | "voice-first";
+	sessionId: string;
+	agentId: string;
+	streaming: boolean;
+	playAudio: (audioUrl: string) => void;
+	host?: string;
+	instanceId?: string;
+	TTS: boolean;
+	stopAudio: () => void;
+	setTTS: React.Dispatch<SetStateAction<boolean>>;
+	socket: WebSocket;
+	sessionIdStorage: AppProps["sessionIdStorage"];
+}) {
+	const [mode, setDefaultMode] = useState(defaultMode);
+	const hostURL = host || "https://app.trueselph.com";
+	const [content, setContent] = useState("");
+	const [transcribeContent, setTranscribeContent] = useState("");
+	const [_contentDraft, setContentDraft] = useState("");
+	const [_userMsgIndex, setUserMsgIndex] = useState(0);
+	const defaultStorageMode = "localstorage";
+
+	const queryClient = useQueryClient();
+
+	const recorderControls = useVoiceVisualizer();
+	const {
+		mediaRecorder,
+		isRecordingInProgress: isRecording,
+		startRecording,
+		stopRecording,
+		recordedBlob: recordingBlob,
+		audioData,
+	} = recorderControls;
+
+	const interactWithoutStreaming = async (variables: {
+		sessionId: string;
+		content: string;
+	}) => {
+		const sessionId =
+			variables.sessionId ||
+			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
+			undefined;
+		const fullResult = await fetch(`${hostURL}/interact`, {
+			method: "POST",
+			body: JSON.stringify({
+				agent_id: agentId,
+				utterance: variables.content,
+				instance_id: instanceId ? instanceId : undefined,
+				session_id: sessionId,
+				tts: TTS,
+				verbose: true,
+				streaming: false,
+			}),
+			headers: {
+				"Content-Type": hostURL?.includes("app.trueselph.com")
+					? "text/plain"
+					: "application/json",
+			},
+		})
+			.then((res) => {
+				return res.json();
+			})
+			.then((res) => {
+				const result = Array.isArray(res?.reports) ? res?.reports?.[0] : res;
+				return result;
+			});
+
+		if (!sessionId || fullResult.response?.session_id !== sessionId) {
+			saveSessionId(
+				fullResult.response?.session_id,
+				sessionIdStorage || defaultStorageMode,
+				agentId,
+			);
+		}
+
+		return [fullResult];
+	};
+
+	let fullContent = "";
+
+	const interactWithStreaming = async (variables: {
+		sessionId: string;
+		content: string;
+	}) => {
+		const sessionId =
+			variables.sessionId ||
+			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
+			undefined;
+
+		return new Promise((resolve, reject) => {
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.onmessage = (event) => {
+					const data = JSON.parse(event.data);
+					const response = data.data;
+
+					if (data.type === "connection") {
+						socket.send(
+							JSON.stringify({
+								type: "walker",
+								walker: "interact",
+								response: true,
+								context: {
+									agent_id: agentId,
+									utterance: variables.content,
+									session_id: sessionId,
+									tts: false,
+									verbose: false,
+									streaming: true,
+									data: {
+										client_id: response.client_id,
+									},
+								},
+							}),
+						);
+					}
+
+					if (data.type === "chat" && response) {
+						fullContent += response.content;
+						const isFinal = response.metadata?.finish_reason === "stop";
+
+						// Update interaction using mutation
+						updateInteraction({
+							interaction: {
+								utterance: content,
+								isFinal: isFinal,
+								id: response.id,
+								response: {
+									session_id: response.session_id,
+									message_type: "TEXT",
+									message: {
+										message_type: "TEXT",
+										content: fullContent,
+									},
+								},
+							},
+						} as unknown as any);
+
+						if (isFinal) {
+							resolve(response);
+						}
+					}
+				};
+
+				socket.send(JSON.stringify({ type: "connection" }));
+
+				controller.current?.signal.addEventListener("abort", () => {
+					socket.onmessage = null;
+					controller.current = new AbortController();
+					reject();
+				});
+			}
+		}) as Promise<Interaction>;
+	};
+
+	// Replace useSWRMutation with useMutation for non-streaming
+	const { mutate: triggerWithoutStreaming, isPending: isMutating } =
+		useMutation({
+			mutationFn: interactWithoutStreaming,
+			onSuccess: (data, _variables) => {
+				console.log("Non-streaming mutation success:", data);
+				const [interaction] = data;
+
+				// Update the cache with the actual response
+				queryClient.setQueryData(
+					["interactions", agentId, sessionId],
+					(old: Interaction[] = []) => {
+						// Remove the optimistic update (id: "new") and add the actual interaction
+						const filtered = old.filter((i) => i.id !== "new");
+						return [...filtered, interaction];
+					},
+				);
+
+				if (interaction?.response?.audio_url && TTS) {
+					playAudio(interaction.response.audio_url);
+				}
+				setContent("");
+				setTranscribeContent("");
+			},
+			onMutate: async (variables) => {
+				// Optimistic update
+				await queryClient.cancelQueries({
+					queryKey: ["interactions", agentId, sessionId],
+				});
+
+				const previousInteractions = queryClient.getQueryData([
+					"interactions",
+					agentId,
+					sessionId,
+				]);
+
+				queryClient.setQueryData(
+					["interactions", agentId, sessionId],
+					(old: Interaction[] = []) => [
+						...old.filter((i) => !!i.id && !!i.response?.message),
+						{
+							id: "new",
+							utterance: transcribeContent || variables.content,
+							timestamp: new Date().toISOString(),
+						},
+					],
+				);
+
+				return { previousInteractions };
+			},
+			onError: (err, _variables, context) => {
+				console.error("Non-streaming mutation error:", err);
+				// Revert optimistic update on error
+				if (context?.previousInteractions) {
+					queryClient.setQueryData(
+						["interactions", agentId, sessionId],
+						context.previousInteractions,
+					);
+				}
+				// Still clear the input on error
+				setContent("");
+				setTranscribeContent("");
+			},
+		}); // Replace useSWRMutation with useMutation for streaming
+
+	const { mutate: triggerWithStreaming, isPending: isStreaming } = useMutation({
+		mutationFn: interactWithStreaming,
+		onSuccess: () => {
+			console.log("Streaming mutation success");
+			setContent("");
+			setTranscribeContent("");
+		},
+		onMutate: async (variables) => {
+			await queryClient.cancelQueries({
+				queryKey: ["interactions", agentId, sessionId],
+			});
+
+			const previousInteractions = queryClient.getQueryData([
+				"interactions",
+				agentId,
+				sessionId,
+			]);
+
+			queryClient.setQueryData(
+				["interactions", agentId, sessionId],
+				(old: Interaction[] = []) => [
+					...old,
+					{
+						id: "stream",
+						utterance: variables.content,
+						timestamp: new Date().toISOString(),
+					},
+				],
+			);
+
+			return { previousInteractions };
+		},
+		onError: (err) => {
+			console.error("Streaming mutation error:", err);
+			// Remove any incomplete stream interactions
+			queryClient.setQueryData(
+				["interactions", agentId, sessionId],
+				(old: Interaction[] = []) =>
+					old.filter((i) => !i.id?.startsWith("stream")),
+			);
+		},
+	});
+
+	// Mutation for updating interactions
+	const { mutate: updateInteraction } = useMutation({
+		mutationFn: async ({
+			interaction,
+		}: {
+			interaction: Interaction & { isFinal?: boolean };
+		}) => {
+			return interaction;
+		},
+		onSuccess: (interaction) => {
+			queryClient.setQueryData(
+				["interactions", agentId, sessionId],
+				(old: Interaction[] = []) => {
+					const filtered = old.filter(
+						(i) =>
+							!(i?.id?.startsWith("stream") || i?.id === interaction?.id) &&
+							!!i?.response?.message?.content,
+					);
+					return [...filtered, interaction];
+				},
+			);
+		},
+	});
+
+	// Clear stalled interactions
+	const clearStalledInteractions = useCallback(() => {
+		queryClient.setQueryData(
+			["interactions", agentId, sessionId],
+			(old: Interaction[] = []) => old.filter((i) => i.id !== "new"),
+		);
+	}, [queryClient, sessionId]);
+
+	const onContentChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+		const { value } = event.currentTarget;
+		setContent(value);
+		setContentDraft(value);
+		setUserMsgIndex(0);
+	};
+
+	let controller = useRef<AbortController>(new AbortController());
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+	const handleStreamAction = useCallback(async () => {
+		try {
+			if (isStreaming) {
+				controller.current.abort();
+			} else {
+				sendMessage();
+			}
+		} catch (err) {
+			console.log(err);
+		}
+	}, [sessionId, content, isStreaming, controller.current]);
+
+	const sendMessage = useCallback(
+		async (utterance?: string) => {
+			const messageContent = utterance || content;
+			const variables = { content: messageContent, sessionId };
+
+			if (streaming) {
+				triggerWithStreaming(variables);
+			} else {
+				triggerWithoutStreaming(variables);
+			}
+		},
+		[
+			content,
+			sessionId,
+			streaming,
+			triggerWithStreaming,
+			triggerWithoutStreaming,
+		],
+	);
+
+	const { transcribe } = useTranscribe({
+		agentId,
+		sessionId,
+		instanceId,
+		host: host as string,
+	});
+
+	useEffect(() => {
+		const handleSetContent = (e: CustomEvent<{ message: string }>) => {
+			if (e.detail?.message) {
+				setContent(e.detail.message);
+			}
+		};
+
+		const handleSendMessage = () => {
+			sendMessage(content);
+		};
+
+		window.addEventListener(
+			"tssetmsgcontent",
+			handleSetContent as EventListener,
+		);
+		window.addEventListener("tssendmsg", handleSendMessage);
+
+		return () => {
+			window.removeEventListener(
+				"tssetmsgcontent",
+				handleSetContent as EventListener,
+			);
+			window.removeEventListener("tssendmsg", handleSendMessage);
+		};
+	}, [content, sendMessage]);
+
+	useEffect(() => {
+		if (!recordingBlob) return;
+
+		transcribe(recordingBlob).then(async (res) => {
+			const result = (await res.json()) as {
+				reports?: Array<{ transcript: string; success: boolean }>;
+				success?: boolean;
+				transcript?: string;
+			};
+
+			const transcript = result.reports?.[0]?.transcript || result?.transcript;
+
+			if (transcript) {
+				setTranscribeContent(transcript || "");
+			}
+
+			return result;
+		});
+	}, [recordingBlob]);
+
+	useEffect(() => {
+		if (transcribeContent) sendMessage(transcribeContent);
+	}, [transcribeContent]);
+
+	useEffect(() => {
+		clearStalledInteractions();
+	}, [clearStalledInteractions]);
+
+	useEffect(() => {
+		if (textareaRef?.current) textareaRef?.current?.focus();
+	}, [textareaRef?.current]);
+
+	// Keep the rest of your ChatInput JSX unchanged
+	return (
+		<>
+			{mode == "voice-first" && (
+				<VoiceChatInput
+					host={host!}
+					agentId={agentId}
+					setDefaultMode={setDefaultMode}
+					audioData={audioData}
+					isRecording={isRecording}
+					recordingBlob={recordingBlob}
+					startRecording={startRecording}
+					sessionId={sessionId}
+					instanceId={instanceId!}
+					stopRecording={stopRecording}
+					setTranscribeContent={setTranscribeContent}
+					stopAudio={stopAudio}
+				/>
+			)}
+
+			{mode == "text-first" && (
+				<Card.Root
+					gap="0"
+					p="0"
+					bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
+					rounded={"3xl"}
+					w="100%"
+					maxW="100%"
+					style={{ overflow: "hidden" }}
+				>
+					<Card.Body p="0">
+						{!mediaRecorder ? (
+							<Textarea
+								ref={textareaRef}
+								color={"var(--ts-input-color, black)"}
+								_placeholder={{
+									color: "var(--ts-input-placeholder-color, black)",
+								}}
+								placeholder="Your message here..."
+								autoFocus
+								outline={"none"}
+								autoresize
+								maxH="14lh"
+								disabled={isMutating || isStreaming}
+								border="none"
+								size="lg"
+								rounded={"3xl"}
+								rows={1}
+								value={content}
+								onChange={onContentChange}
+								onKeyDown={async (event) => {
+									if (event.code === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										if (content.trim().length > 0) {
+											sendMessage();
+										}
+									}
+								}}
+							/>
+						) : (
+							<VoiceVisualizer
+								isControlPanelShown={false}
+								height={40}
+								width={"100%"}
+								controls={recorderControls}
+								rounded={8}
+								barWidth={3}
+								mainBarColor="black"
+								backgroundColor="#EFF6FF"
+								fullscreen
+								animateCurrentPick
+								isProgressIndicatorTimeShown
+								speed={1}
+							/>
+						)}
+					</Card.Body>
+					<Card.Footer py="2" px="0">
+						<Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
+							<Flex gap="1" justify="start" w="100%" px="2" pb="0">
+								<IconButton
+									variant={isRecording ? "solid" : "subtle"}
+									rounded="3xl"
+									colorPalette={isRecording ? "red" : "gray"}
+									size="sm"
+									onClick={() => {
+										setDefaultMode("voice-first");
+										stopAudio();
+										isRecording ? stopRecording() : startRecording();
+									}}
+								>
+									{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
+								</IconButton>
+
+								<IconButton
+									colorPalette="gray"
+									rounded="3xl"
+									size="sm"
+									onClick={() => {
+										if (TTS) stopAudio();
+										setTTS((prev) => !prev);
+									}}
+								>
+									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
+								</IconButton>
+							</Flex>
+
+							<IconButton
+								colorPalette="gray"
+								rounded="3xl"
+								size="sm"
+								onClick={handleStreamAction}
+								disabled={!(isMutating && !isStreaming) && !content}
+								loading={isMutating && !isStreaming}
+							>
+								{isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
+							</IconButton>
+						</Flex>
+					</Card.Footer>
+				</Card.Root>
+			)}
+		</>
 	);
 }
 
@@ -1347,233 +2162,6 @@ const CircularWaveformVisualizer = memo(
 // 	},
 // );
 
-function ChatContainer({
-	themeParsed,
-	headerConfigParsed,
-	sessionId,
-	initialInteractions,
-	agentName,
-	codeTheme,
-	agentId,
-	streaming,
-	host,
-	instanceId,
-	withDebug,
-	socket,
-	fullScreenRef,
-	sessionIdStorage,
-}: AppProps & {
-	themeParsed: Record<string, string>;
-	headerConfigParsed: HeaderConfig;
-	socket: WebSocket;
-	fullScreenRef: RefObject<HTMLDivElement>;
-}) {
-	const [expanded, setExpanded] = useState(false);
-
-	document
-		.getElementsByTagName("html")?.[0]
-		.setAttribute("data-theme", "light");
-	// @ts-ignore
-	document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
-
-	const [TTS, setTTS] = useState(
-		localStorage.getItem("ts-tts-enabled") === "true" || false,
-	);
-	const [playingUrl, setPlayingUrl] = useState("");
-
-	const playAudio = useCallback((audioUrl: string) => {
-		if (audioRef.current) {
-			audioRef.current.pause();
-			audioRef.current = null;
-		}
-
-		const audio = new Audio();
-		audioRef.current = audio;
-
-		// Set up event listeners before playing
-		audio.addEventListener("playing", () => setPlayingUrl(audioUrl));
-		audio.addEventListener("pause", () => setPlayingUrl(""));
-		audio.addEventListener("ended", () => setPlayingUrl(""));
-
-		audio.src = audioUrl;
-		audio.play().catch((err) => console.error("Error playing audio:", err));
-	}, []);
-
-	useEffect(() => {
-		localStorage.setItem("ts-tts-enabled", TTS ? "true" : "false");
-	}, [TTS]);
-
-	const stopAudio = useCallback(() => {
-		if (audioRef.current) {
-			audioRef.current.pause();
-			audioRef.current.currentTime = 0;
-			setPlayingUrl("");
-		}
-	}, []);
-
-	const initialInteractionsParsed = (
-		typeof initialInteractions === "string"
-			? JSON.parse(initialInteractions)
-			: initialInteractions
-	) as Interaction[];
-
-	const { data, mutate } = useSWR(
-		`/interactions/${sessionId}`,
-		() =>
-			initialInteractionsParsed.filter(
-				(interaction) => interaction.id !== "new",
-			) || [],
-		{
-			revalidateIfStale: false,
-			revalidateOnFocus: false,
-			revalidateOnMount: false,
-			revalidateOnReconnect: false,
-		},
-	);
-
-	const audioRef = useRef<HTMLAudioElement | null>(null);
-
-	// Clean up audio on unmount
-	useEffect(() => {
-		return () => {
-			if (audioRef.current) {
-				audioRef.current.pause();
-				audioRef.current.src = "";
-				audioRef.current = null;
-			}
-		};
-	}, []);
-
-	useEffect(() => {
-		if (!initialInteractionsParsed?.length) return;
-		if (data?.length) return;
-
-		console.log("SETTING INITIAL INTERACTIONS");
-		console.log({ initialInteractionsParsed });
-
-		mutate(() => initialInteractionsParsed, { populateCache: true });
-	}, [data, initialInteractionsParsed]);
-
-	useEffect(() => {
-		const listener = () => {
-			mutate([]);
-		};
-
-		window.addEventListener("tsmclearmessages", listener);
-
-		return () => {
-			window.removeEventListener("tsmclearmessages", listener);
-		};
-	}, []);
-
-	return (
-		<>
-			<style>
-				{`
-					.github-light {
-						background-color: transparent !important;
-					}
-
-					.github-dark {
-						background-color: transparent !important;
-					}
-
-				.shiki {
-					white-space: pre-wrap;
-					outline: none;
-					word-break: break-all;
-					overflow: auto;
-					font-family: monospace;
-					font-size: 14px;
-					background-color: transparent;
-				}
-
-				@layer tokens {
-					:host, .light, .dark {
-					  ${Object.keys(themeParsed)
-							.map((key) => `${key}: ${themeParsed[key]};`)
-							.join("\n")}
-					}
-				}
-				`}
-			</style>
-			<Stack
-				py="4"
-				px={expanded ? { base: "4", md: "8" } : undefined}
-				alignItems={data?.length ? "flex-start" : "center"}
-				justifyContent={data?.length ? undefined : "center"}
-				h="100%"
-				maxH="100dvh"
-				style={{ background: "var(--ts-chat-bg, white)" }}
-			>
-				{(headerConfigParsed?.show || !data?.length) && (
-					<ChatHeader
-						expanded={expanded}
-						setExpanded={setExpanded}
-						fullScreenRef={fullScreenRef}
-						playingUrl={playingUrl}
-						TTS={TTS}
-						setTTS={setTTS}
-						headerConfig={{
-							...headerConfigParsed,
-							showAvatar: !data?.length ? true : headerConfigParsed.showAvatar,
-						}}
-						stopAudio={stopAudio}
-						agentName={agentName}
-					/>
-				)}
-				{data?.length ? (
-					<Messages
-						TTS={TTS}
-						interactions={data || []}
-						playingUrl={playingUrl}
-						playAudio={playAudio}
-						withDebug={withDebug}
-						stopAudio={stopAudio}
-						headerConfig={headerConfigParsed}
-						codeTheme={codeTheme}
-						maxWidth={themeParsed["--ts-messages-max-width"] || undefined}
-					/>
-				) : null}
-				<Box
-					mt={data?.length ? "8" : "0"}
-					w="100%"
-					flex="0 0 auto"
-					maxW={themeParsed["--ts-messages-max-width"] || undefined}
-					mx="auto"
-				>
-					{/*{data?.length ? null : (
-						<Text
-							color={"var(--ts-chat-fg, black)"}
-							textAlign="center"
-							fontWeight={500}
-							fontSize={"xl"}
-							my="2"
-						>
-							Speak to {agentName}...
-						</Text>
-					)}*/}
-					<ChatInput
-						defaultMode="text-first"
-						socket={socket}
-						playAudio={playAudio}
-						host={host}
-						streaming={!!streaming}
-						sessionId={sessionId}
-						sessionIdStorage={sessionIdStorage}
-						instanceId={instanceId}
-						agentId={agentId}
-						TTS={TTS}
-						stopAudio={stopAudio}
-						setTTS={setTTS}
-					/>
-				</Box>
-			</Stack>
-		</>
-	);
-}
-
-// Updated ChatHeader with optimized circular waveform visualizer
 function ChatHeader({
 	headerConfig,
 	playingUrl,
@@ -2323,483 +2911,3 @@ const ChatMessageContainer = chakra("div", {
 		},
 	},
 });
-
-export function ChatInput({
-	sessionId,
-	agentId,
-	streaming,
-	playAudio,
-	instanceId,
-	TTS,
-	host,
-	stopAudio,
-	setTTS,
-	socket,
-	defaultMode = "text-first",
-	sessionIdStorage,
-}: {
-	defaultMode: "text-first" | "voice-first";
-	sessionId: string;
-	agentId: string;
-	streaming: boolean;
-	playAudio: (audioUrl: string) => void;
-	host?: string;
-	instanceId?: string;
-	TTS: boolean;
-	stopAudio: () => void;
-	setTTS: React.Dispatch<SetStateAction<boolean>>;
-	socket: WebSocket;
-	sessionIdStorage: AppProps["sessionIdStorage"];
-}) {
-	const [mode, setDefaultMode] = useState(defaultMode);
-	const hostURL = host || "https://app.trueselph.com";
-	const [content, setContent] = useState("");
-	const [transcribeContent, setTranscribeContent] = useState("");
-	const [_contentDraft, setContentDraft] = useState("");
-	const [_userMsgIndex, setUserMsgIndex] = useState(0);
-	const defaultStorageMode = "localstorage";
-
-	const recorderControls = useVoiceVisualizer();
-	const {
-		mediaRecorder,
-		isRecordingInProgress: isRecording,
-		startRecording,
-		stopRecording,
-		recordedBlob: recordingBlob,
-		audioData,
-	} = recorderControls;
-
-	const interactWithoutStreaming = async (
-		_url: string,
-		{ arg }: { arg: { sessionId: string; content: string } },
-	) => {
-		const sessionId =
-			arg.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-			undefined;
-		const fullResult = await fetch(`${hostURL}/interact`, {
-			method: "POST",
-			body: JSON.stringify({
-				agent_id: agentId,
-				utterance: arg.content,
-				instance_id: instanceId ? instanceId : undefined,
-				session_id: sessionId,
-				tts: TTS,
-				verbose: true,
-				streaming: false,
-			}),
-			headers: {
-				"Content-Type": hostURL?.includes("app.trueselph.com")
-					? "text/plain"
-					: "application/json",
-			},
-		})
-			.then((res) => {
-				return res.json();
-			})
-			.then((res) => {
-				const result = Array.isArray(res?.reports) ? res?.reports?.[0] : res;
-				return result;
-			});
-
-		if (!sessionId || fullResult.response?.session_id !== sessionId) {
-			saveSessionId(
-				fullResult.response?.session_id,
-				sessionIdStorage || defaultStorageMode,
-				agentId,
-			);
-		}
-
-		window.dispatchEvent(new CustomEvent("tsmsave"));
-
-		return [fullResult];
-	};
-
-	let fullContent = "";
-
-	const interactWithStreaming = async (
-		_url: string,
-		{ arg }: { arg: { sessionId: string; content: string } },
-	) => {
-		const sessionId =
-			arg.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-			undefined;
-
-		return new Promise((resolve, reject) => {
-			if (socket?.readyState === WebSocket.OPEN) {
-				socket.onmessage = (event) => {
-					const data = JSON.parse(event.data);
-					const response = data.data;
-
-					if (data.type === "connection") {
-						socket.send(
-							JSON.stringify({
-								type: "walker",
-								walker: "interact",
-								response: true,
-								context: {
-									agent_id: agentId,
-									utterance: arg.content,
-									session_id: sessionId,
-									tts: false,
-									verbose: false,
-									streaming: true,
-									data: {
-										client_id: response.client_id,
-									},
-								},
-							}),
-						);
-					}
-
-					if (data.type === "chat" && response) {
-						fullContent += response.content;
-						// Check if this is the final message based on metadata
-						const isFinal = response.metadata?.finish_reason === "stop";
-
-						updateInteraction({
-							interaction: {
-								utterance: content,
-								isFinal: isFinal,
-								id: response.id,
-								response: {
-									session_id: response.session_id,
-									message_type: "TEXT",
-									message: {
-										message_type: "TEXT",
-										content: fullContent,
-									},
-								},
-							},
-						} as unknown as any);
-
-						if (isFinal) {
-							resolve(response);
-						}
-					}
-				};
-
-				socket.send(JSON.stringify({ type: "connection" }));
-
-				controller.current?.signal.addEventListener("abort", () => {
-					socket.onmessage = null;
-					controller.current = new AbortController();
-					reject();
-				});
-			}
-		}) as Promise<Interaction>;
-	};
-
-	const { trigger: triggerWithoutStreaming, isMutating } = useSWRMutation<
-		Interaction[]
-	>(`/interactions/${sessionId}`, interactWithoutStreaming, {
-		onSuccess(data) {
-			const [interaction] = data;
-			if (interaction?.response?.audio_url && TTS) {
-				playAudio(interaction.response.audio_url);
-			}
-		},
-		optimisticData: (current) => {
-			return [
-				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
-				{ id: "new", utterance: transcribeContent || content },
-			] as any;
-		},
-		populateCache: (result, current) => {
-			setContent("");
-			setTranscribeContent("");
-			return [
-				...(current?.filter((i) => !!i.id && !!i.response?.message) || []),
-				...result,
-			];
-		},
-		revalidate: false,
-	});
-
-	const { trigger: updateInteraction } = useSWRMutation<
-		(Interaction & { isFinal: boolean })[]
-	>(
-		`/interactions/${sessionId}`,
-		(
-			_url: string,
-			{ arg }: { arg: { interaction: Interaction & { isFinal: boolean } } },
-		) => {
-			return [arg.interaction];
-		},
-		{
-			revalidate: false,
-			populateCache: (result, current) => {
-				setContent("");
-				console.log({ result, current });
-
-				return [
-					...(current || []).filter(
-						(i) =>
-							!(i?.id?.startsWith("stream") || i?.id === result[0]?.id) &&
-							!!i?.response?.message?.content,
-					),
-					{
-						...result[0],
-					},
-				];
-			},
-		},
-	);
-
-	const { trigger: clearStalledInteractions } = useSWRMutation<
-		(Interaction & { isFinal: boolean })[]
-	>(
-		`/interactions/${sessionId}`,
-		(_url: string) => {
-			return [];
-		},
-		{
-			revalidate: false,
-			populateCache: (_result, current) => {
-				return [...(current || []).filter((i) => i.id !== "new")];
-			},
-		},
-	);
-
-	const { trigger: triggerWithStreaming, isMutating: isStreaming } =
-		useSWRMutation<Promise<Interaction>>(
-			`/interactions/${sessionId}`,
-			interactWithStreaming,
-			{
-				optimisticData: (current) =>
-					[
-						...((current as unknown as Interaction[]) || []),
-						{ id: "stream", utterance: content },
-					] as unknown as Promise<Interaction>,
-				revalidate: false,
-			},
-		);
-
-	const onContentChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-		const { value } = event.currentTarget;
-		setContent(value);
-		setContentDraft(value);
-		setUserMsgIndex(0);
-	};
-
-	let controller = useRef<AbortController>(new AbortController());
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-	const handleStreamAction = useCallback(async () => {
-		try {
-			if (isStreaming) {
-				controller.current.abort();
-			} else {
-				sendMessage();
-			}
-		} catch (err) {
-			console.log(err);
-		}
-	}, [sessionId, content, isStreaming, controller.current]);
-
-	const sendMessage = useCallback(
-		async (utterance?: string) => {
-			if (streaming) {
-				await triggerWithStreaming({
-					content: utterance || content,
-					sessionId,
-				} as any);
-			} else {
-				await triggerWithoutStreaming({
-					content: utterance || content,
-					sessionId,
-				} as any);
-			}
-		},
-		[content, sessionId, streaming],
-	);
-
-	const { transcribe } = useTranscribe({
-		agentId,
-		sessionId,
-		instanceId,
-		host: host as string,
-	});
-
-	useEffect(() => {
-		const handleSetContent = (e: CustomEvent<{ message: string }>) => {
-			if (e.detail?.message) {
-				setContent(e.detail.message);
-			}
-		};
-
-		const handleSendMessage = () => {
-			sendMessage(content);
-		};
-
-		window.addEventListener(
-			"tssetmsgcontent",
-			handleSetContent as EventListener,
-		);
-		window.addEventListener("tssendmsg", handleSendMessage);
-
-		return () => {
-			window.removeEventListener(
-				"tssetmsgcontent",
-				handleSetContent as EventListener,
-			);
-			window.removeEventListener("tssendmsg", handleSendMessage);
-		};
-	}, [content, sendMessage]);
-
-	useEffect(() => {
-		if (!recordingBlob) return;
-
-		transcribe(recordingBlob).then(async (res) => {
-			const result = (await res.json()) as {
-				reports?: Array<{ transcript: string; success: boolean }>;
-				success?: boolean;
-				transcript?: string;
-			};
-
-			const transcript = result.reports?.[0]?.transcript || result?.transcript;
-
-			if (transcript) {
-				setTranscribeContent(transcript || "");
-			}
-
-			return result;
-		});
-	}, [recordingBlob]);
-
-	useEffect(() => {
-		if (transcribeContent) sendMessage(transcribeContent);
-	}, [transcribeContent]);
-
-	useEffect(() => {
-		clearStalledInteractions();
-	}, []);
-
-	useEffect(() => {
-		if (textareaRef?.current) textareaRef?.current?.focus();
-	}, [textareaRef?.current]);
-
-	return (
-		<>
-			{mode == "voice-first" && (
-				<VoiceChatInput
-					host={host!}
-					agentId={agentId}
-					setDefaultMode={setDefaultMode}
-					audioData={audioData}
-					isRecording={isRecording}
-					recordingBlob={recordingBlob}
-					startRecording={startRecording}
-					sessionId={sessionId}
-					instanceId={instanceId!}
-					stopRecording={stopRecording}
-					setTranscribeContent={setTranscribeContent}
-					stopAudio={stopAudio}
-				/>
-			)}
-
-			{mode == "text-first" && (
-				<Card.Root
-					gap="0"
-					p="0"
-					bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-					rounded={"3xl"}
-					w="100%"
-					maxW="100%"
-					style={{ overflow: "hidden" }}
-				>
-					<Card.Body p="0">
-						{!mediaRecorder ? (
-							<Textarea
-								ref={textareaRef}
-								color={"var(--ts-input-color, black)"}
-								_placeholder={{
-									color: "var(--ts-input-placeholder-color, black)",
-								}}
-								placeholder="Your message here..."
-								autoFocus
-								outline={"none"}
-								autoresize
-								maxH="14lh"
-								disabled={isMutating || isStreaming}
-								border="none"
-								size="lg"
-								rounded={"3xl"}
-								rows={1}
-								value={content}
-								onChange={onContentChange}
-								onKeyDown={async (event) => {
-									if (event.code === "Enter" && !event.shiftKey) {
-										event.preventDefault();
-										if (content.trim().length > 0) {
-											sendMessage();
-										}
-									}
-								}}
-							/>
-						) : (
-							<VoiceVisualizer
-								isControlPanelShown={false}
-								height={40}
-								width={"100%"}
-								controls={recorderControls}
-								rounded={8}
-								barWidth={3}
-								mainBarColor="black"
-								backgroundColor="#EFF6FF"
-								fullscreen
-								animateCurrentPick
-								isProgressIndicatorTimeShown
-								speed={1}
-							/>
-						)}
-					</Card.Body>
-					<Card.Footer py="2" px="0">
-						<Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
-							<Flex gap="1" justify="start" w="100%" px="2" pb="0">
-								<IconButton
-									variant={isRecording ? "solid" : "subtle"}
-									rounded="3xl"
-									colorPalette={isRecording ? "red" : "gray"}
-									size="sm"
-									onClick={() => {
-										setDefaultMode("voice-first");
-										stopAudio();
-										isRecording ? stopRecording() : startRecording();
-									}}
-								>
-									{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
-								</IconButton>
-
-								<IconButton
-									colorPalette="gray"
-									rounded="3xl"
-									size="sm"
-									onClick={() => {
-										if (TTS) stopAudio();
-										setTTS((prev) => !prev);
-									}}
-								>
-									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
-								</IconButton>
-							</Flex>
-
-							<IconButton
-								colorPalette="gray"
-								rounded="3xl"
-								size="sm"
-								onClick={handleStreamAction}
-								disabled={!(isMutating && !isStreaming) && !content}
-								loading={isMutating && !isStreaming}
-							>
-								{isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
-							</IconButton>
-						</Flex>
-					</Card.Footer>
-				</Card.Root>
-			)}
-		</>
-	);
-}
