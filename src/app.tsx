@@ -639,7 +639,69 @@ export function ChatInput({
     return [transformedInteraction];
   };
 
-  let fullContent = "";
+  const STREAM_PLACEHOLDER_ID = "stream";
+
+  const getTextContent = (value: unknown) =>
+    typeof value === "string" ? value : "";
+
+  const hasRenderableMessageContent = (
+    message?: ResponseMessage | null,
+  ): boolean => {
+    if (!message) return false;
+
+    if (message.message_type === "TEXT") {
+      return message.content.trim().length > 0;
+    }
+
+    if (message.message_type === "MEDIA") {
+      return Boolean(message.content || message.data);
+    }
+
+    if (message.message_type === "MULTI") {
+      return message.content.some((item) => hasRenderableMessageContent(item));
+    }
+
+    return false;
+  };
+
+  const buildStreamInteraction = ({
+    id,
+    utterance,
+    content,
+    currentSessionId,
+    isFinal,
+  }: {
+    id: string;
+    utterance: string;
+    content: string;
+    currentSessionId: string;
+    isFinal: boolean;
+  }): Interaction => ({
+    id,
+    agent_id: agentId,
+    channel: channel || "web",
+    utterance,
+    tokens: 0,
+    time_stamp: new Date().toISOString(),
+    trail: [],
+    intents: [],
+    functions: {},
+    directives: [],
+    context_data: { new_user: false, ModelActionResult: [] },
+    events: [],
+    response: {
+      session_id: currentSessionId,
+      message_type: "TEXT",
+      message: {
+        message_type: "TEXT",
+        content,
+        meta: {},
+      },
+      tokens: 0,
+    },
+    data: {},
+    closed: isFinal,
+  });
 
   const interactWithStreaming = async (variables: {
     sessionId: string;
@@ -677,85 +739,133 @@ export function ChatInput({
 
     let interactionId = "";
     let currentSessionId = sessionId;
+    let segmentIndex = 0;
+    let segmentContent = "";
+    let lineBuffer = "";
+    let lastCommittedContent = "";
+    let lastVisibleInteraction: Interaction | null = null;
+    let pendingUtterance = variables.content;
+    let currentSegmentUtterance = "";
+
+    const getBaseInteractionId = () => interactionId || STREAM_PLACEHOLDER_ID;
+
+    const getCurrentSegmentId = () =>
+      `${getBaseInteractionId()}-${segmentIndex}`;
+
+    const publishSegment = (content: string, isFinal: boolean) => {
+      if (!currentSegmentUtterance && pendingUtterance) {
+        currentSegmentUtterance = pendingUtterance;
+        pendingUtterance = "";
+      }
+
+      const interaction = buildStreamInteraction({
+        id: getCurrentSegmentId(),
+        utterance: currentSegmentUtterance,
+        content,
+        currentSessionId: currentSessionId || "",
+        isFinal,
+      });
+
+      updateInteraction({
+        interaction,
+      });
+
+      lastVisibleInteraction = interaction;
+
+      if (isFinal) {
+        lastCommittedContent = content;
+      }
+
+      return interaction;
+    };
+
+    const finalizeCurrentSegment = ({
+      content = segmentContent,
+      advanceSegment = false,
+    }: {
+      content?: string;
+      advanceSegment?: boolean;
+    }) => {
+      const normalizedContent = getTextContent(content);
+      const hasVisibleContent = normalizedContent.trim().length > 0;
+
+      if (hasVisibleContent) {
+        publishSegment(normalizedContent, true);
+      }
+
+      if (advanceSegment) {
+        segmentIndex += 1;
+        segmentContent = "";
+        currentSegmentUtterance = "";
+      }
+
+      return hasVisibleContent;
+    };
+
+    const handleStreamEvent = (event: any) => {
+      if (event.type === "start") {
+        interactionId = event.interaction_id || "";
+        if (event.session_id) {
+          currentSessionId = event.session_id;
+          saveSessionId(
+            event.session_id,
+            sessionIdStorage || defaultStorageMode,
+            agentId,
+          );
+        }
+      }
+
+      if (event.type === "message" && event.message) {
+        segmentContent += getTextContent(event.message.content);
+
+        if (String(event.message.message_type || "").toLowerCase() === "final") {
+          finalizeCurrentSegment({ advanceSegment: true });
+          return null;
+        }
+
+        if (segmentContent.trim()) {
+          publishSegment(segmentContent, false);
+        }
+      }
+
+      if (event.type === "final") {
+        if (event.session_id) {
+          currentSessionId = event.session_id;
+        }
+
+        const finalResponse = getTextContent(event.response);
+        const shouldSkipDuplicateFinal =
+          !segmentContent.trim() &&
+          !!finalResponse &&
+          finalResponse === lastCommittedContent;
+
+        if (!shouldSkipDuplicateFinal) {
+          const finalContent = finalResponse || segmentContent;
+          finalizeCurrentSegment({ content: finalContent });
+        }
+
+        return lastVisibleInteraction;
+      }
+
+      return null;
+    };
 
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() || "";
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const event = JSON.parse(line.slice(6));
-
-              if (event.type === "start") {
-                interactionId = event.interaction_id || "";
-                if (event.session_id) {
-                  currentSessionId = event.session_id;
-                  saveSessionId(
-                    event.session_id,
-                    sessionIdStorage || defaultStorageMode,
-                    agentId,
-                  );
-                }
-              }
-
-              if (event.type === "message" && event.message) {
-                fullContent += event.message.content;
-
-                updateInteraction({
-                  interaction: {
-                    utterance: variables.content,
-                    isFinal: false,
-                    id: interactionId || "stream",
-                    response: {
-                      session_id: currentSessionId || "",
-                      message_type: "TEXT",
-                      message: {
-                        message_type: "TEXT",
-                        content: fullContent,
-                      },
-                    },
-                  },
-                } as unknown as any);
-              }
-
-              if (event.type === "final") {
-                if (event.session_id) {
-                  currentSessionId = event.session_id;
-                }
-
-                updateInteraction({
-                  interaction: {
-                    utterance: variables.content,
-                    isFinal: true,
-                    id: interactionId || "stream",
-                    response: {
-                      session_id: currentSessionId || "",
-                      message_type: "TEXT",
-                      message: {
-                        message_type: "TEXT",
-                        content: event.response || fullContent,
-                      },
-                    },
-                  },
-                } as unknown as any);
-
-                return {
-                  utterance: variables.content,
-                  id: interactionId || "stream",
-                  response: {
-                    session_id: currentSessionId || "",
-                    message_type: "TEXT",
-                    message: {
-                      message_type: "TEXT",
-                      content: event.response || fullContent,
-                    },
-                  },
-                };
+              const finalInteraction = handleStreamEvent(event);
+              if (finalInteraction !== null || event.type === "final") {
+                return finalInteraction;
               }
             } catch (e) {
               console.warn("Failed to parse SSE event:", e);
@@ -763,22 +873,23 @@ export function ChatInput({
           }
         }
       }
+
+      if (lineBuffer.trim().startsWith("data: ")) {
+        try {
+          const event = JSON.parse(lineBuffer.trim().slice(6));
+          const finalInteraction = handleStreamEvent(event);
+          if (finalInteraction !== null || event.type === "final") {
+            return finalInteraction;
+          }
+        } catch (e) {
+          console.warn("Failed to parse trailing SSE event:", e);
+        }
+      }
     } finally {
       reader.releaseLock();
     }
 
-    return {
-      utterance: variables.content,
-      id: interactionId || "stream",
-      response: {
-        session_id: currentSessionId || "",
-        message_type: "TEXT",
-        message: {
-          message_type: "TEXT",
-          content: fullContent,
-        },
-      },
-    };
+    return lastVisibleInteraction;
   };
 
   // Replace useSWRMutation with useMutation for non-streaming
@@ -850,6 +961,11 @@ export function ChatInput({
     mutationFn: interactWithStreaming,
     onSuccess: () => {
       console.log("Streaming mutation success");
+      queryClient.setQueryData(
+        ["interactions", agentId, sessionId],
+        (old: Interaction[] = []) =>
+          old.filter((interaction) => interaction.id !== STREAM_PLACEHOLDER_ID),
+      );
       setContent("");
       setTranscribeContent("");
     },
@@ -869,7 +985,7 @@ export function ChatInput({
         (old: Interaction[] = []) => [
           ...old,
           {
-            id: "stream",
+            id: STREAM_PLACEHOLDER_ID,
             utterance: variables.content,
             timestamp: new Date().toISOString(),
           },
@@ -884,7 +1000,11 @@ export function ChatInput({
       queryClient.setQueryData(
         ["interactions", agentId, sessionId],
         (old: Interaction[] = []) =>
-          old.filter((i) => !i.id?.startsWith("stream")),
+          old.filter(
+            (interaction) =>
+              interaction.id !== STREAM_PLACEHOLDER_ID &&
+              interaction.closed !== false,
+          ),
       );
     },
   });
@@ -904,9 +1024,20 @@ export function ChatInput({
         (old: Interaction[] = []) => {
           const filtered = old.filter(
             (i) =>
-              !(i?.id?.startsWith("stream") || i?.id === interaction?.id) &&
-              !!i?.response?.message?.content,
+              i?.id !== STREAM_PLACEHOLDER_ID &&
+              i?.id !== interaction?.id &&
+              (i?.response?.message
+                ? hasRenderableMessageContent(i.response.message)
+                : true),
           );
+
+          if (
+            !interaction?.response?.message ||
+            !hasRenderableMessageContent(interaction.response.message)
+          ) {
+            return filtered;
+          }
+
           return [...filtered, interaction];
         },
       );
@@ -2615,14 +2746,16 @@ export const Messages = memo(function Messages({
               )
               ?.map?.((interaction) => (
                 <Fragment key={interaction.id}>
-                  <ChatMessage
-                    sent
-                    headerConfig={headerConfig}
-                    interaction={interaction}
-                    codeTheme={codeTheme}
-                    setDebuggedInteraction={setDebuggedInteraction}
-                    withDebug={withDebug}
-                  />
+                  {interaction.utterance?.trim() ? (
+                    <ChatMessage
+                      sent
+                      headerConfig={headerConfig}
+                      interaction={interaction}
+                      codeTheme={codeTheme}
+                      setDebuggedInteraction={setDebuggedInteraction}
+                      withDebug={withDebug}
+                    />
+                  ) : null}
                   <ChatMessage
                     headerConfig={headerConfig}
                     playingUrl={playingUrl}
