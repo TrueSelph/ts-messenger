@@ -1,72 +1,73 @@
 import {
-	Avatar,
-	Box,
-	Image,
-	ScrollArea,
-	Card,
-	chakra,
-	Flex,
-	Heading,
-	IconButton,
-	Stack,
-	Textarea,
-	Text,
-	Float,
-	Code,
-	useClipboard,
-	Table,
-	Presence,
-	Group,
+  Avatar,
+  Box,
+  Image,
+  ScrollArea,
+  Card,
+  chakra,
+  Flex,
+  Heading,
+  IconButton,
+  Stack,
+  Textarea,
+  Text,
+  Float,
+  Code,
+  useClipboard,
+  Table,
+  Presence,
+  Group,
 } from "@chakra-ui/react";
 import {
-	LuClipboard,
-	LuClipboardCheck,
-	LuHeadphones,
-	LuHeadphoneOff,
-	LuInfo,
-	LuVolume2,
-	LuVolumeOff,
-	LuArrowUpFromLine,
-	LuExpand,
-	LuShrink,
-	LuKeyboard,
+  LuClipboard,
+  LuClipboardCheck,
+  LuHeadphones,
+  LuHeadphoneOff,
+  LuInfo,
+  LuVolume2,
+  LuVolumeOff,
+  LuArrowUpFromLine,
+  LuExpand,
+  LuShrink,
+  LuKeyboard,
 } from "react-icons/lu";
 
 import { Provider } from "./components/ui/provider";
 import Markdown, { ReactRenderer } from "marked-react";
 import { ShikiHighlighter } from "react-shiki";
 import {
-	Fragment,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-	useMemo,
-	memo,
-	type ChangeEvent,
-	type SetStateAction,
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  memo,
+  type ChangeEvent,
+  type SetStateAction,
 } from "preact/compat";
 import { useVoiceVisualizer, VoiceVisualizer } from "react-voice-visualizer";
 import {
-	AiOutlineArrowUp,
-	AiOutlinePause,
-	AiOutlineStop,
+  AiOutlineArrowUp,
+  AiOutlinePaperClip,
+  AiOutlinePause,
+  AiOutlineStop,
 } from "react-icons/ai";
 import { HiOutlineMicrophone } from "react-icons/hi";
 import {
-	type Interaction,
-	type MediaResponseMessage,
-	type ResponseMessage,
-	type TextResponeMessage,
+  type Interaction,
+  type MediaResponseMessage,
+  type ResponseMessage,
+  type TextResponeMessage,
 } from "./types";
 
 // TanStack Query imports
 import {
-	QueryClient,
-	useQuery,
-	useMutation,
-	useQueryClient,
-	useIsRestoring,
+  QueryClient,
+  useQuery,
+  useMutation,
+  useQueryClient,
+  useIsRestoring,
 } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createIDBPersister } from "./persister";
@@ -84,345 +85,348 @@ import { IconAudioVisualizer } from "./IconAudioVisualizer";
 
 // Create Query Client with proper configuration for persistence
 const createQueryClient = () =>
-	new QueryClient({
-		defaultOptions: {
-			queries: {
-				gcTime: 1000 * 60 * 60 * 24, // 24 hours
-				staleTime: 1000 * 60 * 60 * 24, // 24 hours
-				refetchOnWindowFocus: false,
-				refetchOnReconnect: false,
-				refetchOnMount: false,
-				retry: false,
-			},
-		},
-	});
+  new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: 1000 * 60 * 60 * 24, // 24 hours
+        staleTime: 1000 * 60 * 60 * 24, // 24 hours
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+        refetchOnMount: false,
+        retry: false,
+      },
+    },
+  });
 
 // Create the IndexedDB persister
 const persister = createIDBPersister("trueselph-chat");
 
 export type HeaderConfig = {
-	showAvatar?: boolean;
-	avatarUrl?: string;
-	show?: boolean;
-	hideExpandButton?: boolean;
+  showAvatar?: boolean;
+  avatarUrl?: string;
+  show?: boolean;
+  hideExpandButton?: boolean;
 };
 
 export type AppProps = {
-	agentId: string;
-	host?: string;
-	sessionId: string;
-	instanceId?: string;
-	headerConfig?: HeaderConfig | string;
-	agentName: string;
-	withDebug?: boolean;
-	streaming?: boolean;
-	theme?: string | Record<string, string>;
-	initialInteractions?: Interaction[];
-	useLocalStorageCache?: boolean;
-	codeTheme?: string;
-	layout?: "standard" | "popup";
-	sessionIdStorage?: "localstorage" | "cookie" | "sessionstorage";
+  agentId: string;
+  host?: string;
+  sessionId?: string;
+  userId?: string;
+  instanceId?: string;
+  headerConfig?: HeaderConfig | string;
+  agentName: string;
+  withDebug?: boolean;
+  streaming?: boolean;
+  theme?: string | Record<string, string>;
+  initialInteractions?: Interaction[];
+  useLocalStorageCache?: boolean;
+  codeTheme?: string;
+  layout?: "standard" | "popup";
+  sessionIdStorage?: "localstorage" | "cookie" | "sessionstorage";
+  enabledFileButton?: boolean | string;
+  channel?: string;
 };
 
 export function App(props: AppProps) {
-	const [queryClient] = useState(() => createQueryClient());
+  const [queryClient] = useState(() => createQueryClient());
 
-	return (
-		<PersistQueryClientProvider
-			client={queryClient}
-			persistOptions={{
-				persister,
-				maxAge: 1000 * 60 * 60 * 24, // 24 hours
-				buster: import.meta.env.DEV ? "dev" : "prod",
-			}}
-			onSuccess={() => {
-				// This will be called when persistence is successful
-				console.log("Persistence successful");
-			}}
-		>
-			<AppContainer
-				{...props}
-				sessionId={
-					props.sessionId || getSessionId("localstorage", props.agentId) || ""
-				}
-				streaming={
-					typeof (props.streaming as string | boolean) == "string"
-						? (props.streaming as unknown as string) === "true"
-						: props.streaming
-				}
-			/>
-		</PersistQueryClientProvider>
-	);
+  return (
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister,
+        maxAge: 1000 * 60 * 60 * 24, // 24 hours
+        buster: import.meta.env.DEV ? "dev" : "prod",
+      }}
+      onSuccess={() => {
+        // This will be called when persistence is successful
+        console.log("Persistence successful");
+      }}
+    >
+      <AppContainer
+        {...props}
+        sessionId={
+          props.sessionId || getSessionId("localstorage", props.agentId) || ""
+        }
+        streaming={
+          typeof (props.streaming as string | boolean) == "string"
+            ? (props.streaming as unknown as string) === "true"
+            : props.streaming
+        }
+      />
+    </PersistQueryClientProvider>
+  );
 }
 
 // Keep your existing helper functions (getCookie, getLocalStorage, getSessionId, saveSessionId)
 function getCookie(name: string) {
-	const value = `; ${document.cookie}`;
-	const parts = value.split(`; ${name}=`);
-	if (parts.length === 2) return parts?.pop()?.split(";").shift();
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts?.pop()?.split(";").shift();
 }
 
 function getLocalStorage(key: string) {
-	try {
-		return localStorage.getItem(key);
-	} catch (error) {
-		console.error(error);
-		return null;
-	}
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
 }
 
 function getSessionId(
-	mode: "sessionstorage" | "cookie" | "localstorage",
-	agentId: string,
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
 ) {
-	try {
-		switch (mode) {
-			case "sessionstorage":
-				return sessionStorage.getItem("tsSessionId");
-			case "cookie":
-				return getCookie("tsSessionId");
-			case "localstorage":
-				return getLocalStorage(`tsSessionId-${agentId}`);
-			default:
-				return null;
-		}
-	} catch (error) {
-		console.error(error);
-		return null;
-	}
+  try {
+    switch (mode) {
+      case "sessionstorage":
+        return sessionStorage.getItem("tsSessionId");
+      case "cookie":
+        return getCookie("tsSessionId");
+      case "localstorage":
+        return getLocalStorage(`tsSessionId-${agentId}`);
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
 }
 
 function saveSessionId(
-	id: string,
-	mode: "sessionstorage" | "cookie" | "localstorage",
-	agentId: string,
+  id: string,
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
 ) {
-	switch (mode) {
-		case "sessionstorage":
-			sessionStorage.setItem("tsSessionId", id);
-			break;
-		case "cookie":
-			document.cookie = `tsSessionId=${id}; path=/`;
-			break;
-		case "localstorage":
-			localStorage.setItem(`tsSessionId-${agentId}`, id);
-			break;
-		default:
-			break;
-	}
+  switch (mode) {
+    case "sessionstorage":
+      sessionStorage.setItem("tsSessionId", id);
+      break;
+    case "cookie":
+      document.cookie = `tsSessionId=${id}; path=/`;
+      break;
+    case "localstorage":
+      localStorage.setItem(`tsSessionId-${agentId}`, id);
+      break;
+    default:
+      break;
+  }
 }
 
 export function AppContainer(props: AppProps) {
-	const socket = new WebSocket(`${props.host}/websocket`);
-	const { headerConfig, theme, layout = "standard" } = props;
+  const { headerConfig, theme, layout = "standard" } = props;
 
-	const headerConfigParsed = (
-		typeof headerConfig === "string" ? JSON.parse(headerConfig) : headerConfig
-	) as HeaderConfig;
+  const headerConfigParsed = (
+    typeof headerConfig === "string" ? JSON.parse(headerConfig) : headerConfig
+  ) as HeaderConfig;
 
-	const themeParsed = (
-		typeof theme === "string" ? JSON.parse(theme) : theme
-	) as Record<string, string>;
+  const themeParsed = (
+    typeof theme === "string" ? JSON.parse(theme) : theme
+  ) as Record<string, string>;
 
-	const fullScreenRef = useRef<HTMLDivElement>(null);
+  const fullScreenRef = useRef<HTMLDivElement>(null);
 
-	return (
-		<div
-			ref={fullScreenRef}
-			style={{ height: layout === "popup" ? undefined : "100%" }}
-		>
-			<Provider theme={themeParsed} layout={layout}>
-				<>
-					{layout === "popup" ? (
-						<Popup {...props} headerConfig={headerConfigParsed}>
-							<ChatContainer
-								socket={socket}
-								themeParsed={themeParsed}
-								headerConfigParsed={headerConfigParsed}
-								fullScreenRef={fullScreenRef}
-								{...props}
-							/>
-						</Popup>
-					) : (
-						<ChatContainer
-							socket={socket}
-							themeParsed={themeParsed}
-							fullScreenRef={fullScreenRef}
-							headerConfigParsed={headerConfigParsed}
-							{...props}
-						/>
-					)}
-				</>
-			</Provider>
-		</div>
-	);
+  return (
+    <div
+      ref={fullScreenRef}
+      style={{ height: layout === "popup" ? undefined : "100%" }}
+    >
+      <Provider theme={themeParsed} layout={layout}>
+        <>
+          {layout === "popup" ? (
+            <Popup {...props} headerConfig={headerConfigParsed}>
+              <ChatContainer
+                themeParsed={themeParsed}
+                headerConfigParsed={headerConfigParsed}
+                fullScreenRef={fullScreenRef}
+                {...props}
+              />
+            </Popup>
+          ) : (
+            <ChatContainer
+              themeParsed={themeParsed}
+              fullScreenRef={fullScreenRef}
+              headerConfigParsed={headerConfigParsed}
+              {...props}
+            />
+          )}
+        </>
+      </Provider>
+    </div>
+  );
 }
 
 function ChatContainer({
-	themeParsed,
-	headerConfigParsed,
-	sessionId,
-	initialInteractions,
-	agentName,
-	codeTheme,
-	agentId,
-	streaming,
-	host,
-	instanceId,
-	withDebug,
-	socket,
-	fullScreenRef,
-	sessionIdStorage,
+  themeParsed,
+  headerConfigParsed,
+  sessionId,
+  initialInteractions,
+  agentName,
+  codeTheme,
+  agentId,
+  streaming,
+  host,
+  instanceId,
+  withDebug,
+  fullScreenRef,
+  sessionIdStorage,
+  enabledFileButton: enableFileButtonConfig,
+  userId,
+  channel,
 }: AppProps & {
-	themeParsed: Record<string, string>;
-	headerConfigParsed: HeaderConfig;
-	socket: WebSocket;
-	fullScreenRef: RefObject<HTMLDivElement>;
+  themeParsed: Record<string, string>;
+  headerConfigParsed: HeaderConfig;
+  fullScreenRef: RefObject<HTMLDivElement>;
 }) {
-	const [expanded, setExpanded] = useState(false);
-	const queryClient = useQueryClient();
-	const isRestoring = useIsRestoring();
-	const hasInitialized = useRef(false);
+  const [expanded, setExpanded] = useState(false);
+  const queryClient = useQueryClient();
+  const isRestoring = useIsRestoring();
+  const hasInitialized = useRef(false);
+  const enableFileButton =
+    enableFileButtonConfig === true || enableFileButtonConfig === "true";
 
-	document
-		.getElementsByTagName("html")?.[0]
-		.setAttribute("data-theme", "light");
-	// @ts-ignore
-	document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
+  document
+    .getElementsByTagName("html")?.[0]
+    .setAttribute("data-theme", "light");
+  // @ts-ignore
+  document.getElementsByTagName("html")[0].style["color-scheme"] = "unset";
 
-	const [TTS, setTTS] = useState(
-		localStorage.getItem("ts-tts-enabled") === "true" || false,
-	);
-	const [playingUrl, setPlayingUrl] = useState("");
+  const [TTS, setTTS] = useState(
+    localStorage.getItem("ts-tts-enabled") === "true" || false,
+  );
+  const [playingUrl, setPlayingUrl] = useState("");
 
-	const playAudio = useCallback((audioUrl: string) => {
-		if (audioRef.current) {
-			audioRef.current.pause();
-			audioRef.current = null;
-		}
+  const playAudio = useCallback((audioUrl: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
 
-		const audio = new Audio();
-		audioRef.current = audio;
+    const audio = new Audio();
+    audioRef.current = audio;
 
-		audio.addEventListener("playing", () => setPlayingUrl(audioUrl));
-		audio.addEventListener("pause", () => setPlayingUrl(""));
-		audio.addEventListener("ended", () => setPlayingUrl(""));
+    audio.addEventListener("playing", () => setPlayingUrl(audioUrl));
+    audio.addEventListener("pause", () => setPlayingUrl(""));
+    audio.addEventListener("ended", () => setPlayingUrl(""));
 
-		audio.src = audioUrl;
-		audio.play().catch((err) => console.error("Error playing audio:", err));
-	}, []);
+    audio.src = audioUrl;
+    audio.play().catch((err) => console.error("Error playing audio:", err));
+  }, []);
 
-	useEffect(() => {
-		localStorage.setItem("ts-tts-enabled", TTS ? "true" : "false");
-	}, [TTS]);
+  useEffect(() => {
+    localStorage.setItem("ts-tts-enabled", TTS ? "true" : "false");
+  }, [TTS]);
 
-	const stopAudio = useCallback(() => {
-		if (audioRef.current) {
-			audioRef.current.pause();
-			audioRef.current.currentTime = 0;
-			setPlayingUrl("");
-		}
-	}, []);
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setPlayingUrl("");
+    }
+  }, []);
 
-	const initialInteractionsParsed =
-		((typeof initialInteractions === "string"
-			? JSON.parse(initialInteractions)
-			: initialInteractions) as Interaction[]) || [];
+  const initialInteractionsParsed =
+    ((typeof initialInteractions === "string"
+      ? JSON.parse(initialInteractions)
+      : initialInteractions) as Interaction[]) || [];
 
-	// Query that handles both persistence and initial data
-	const { data: interactions = [] } = useQuery({
-		queryKey: ["interactions", agentId, sessionId],
-		queryFn: () => {
-			// This provides the initial data when no persisted data exists
-			return (
-				initialInteractionsParsed.filter(
-					(interaction) => interaction.id !== "new",
-				) || []
-			);
-		},
-		staleTime: Infinity,
-		gcTime: 1000 * 60 * 60 * 24,
-	});
+  // Query that handles both persistence and initial data
+  const { data: interactions = [] } = useQuery({
+    queryKey: ["interactions", agentId, sessionId],
+    queryFn: () => {
+      // This provides the initial data when no persisted data exists
+      return (
+        initialInteractionsParsed.filter(
+          (interaction) => interaction.id !== "new",
+        ) || []
+      );
+    },
+    staleTime: Infinity,
+    gcTime: 1000 * 60 * 60 * 24,
+  });
 
-	const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-	// Clean up audio on unmount
-	useEffect(() => {
-		return () => {
-			if (audioRef.current) {
-				audioRef.current.pause();
-				audioRef.current.src = "";
-				audioRef.current = null;
-			}
-		};
-	}, []);
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
-	// Debug: Log when interactions change
-	useEffect(() => {
-		console.log("Interactions updated:", interactions?.length, interactions);
-	}, [interactions]);
+  // Debug: Log when interactions change
+  useEffect(() => {
+    console.log("Interactions updated:", interactions?.length, interactions);
+  }, [interactions]);
 
-	// Initialize data only once after restoration
-	useEffect(() => {
-		if (isRestoring || hasInitialized.current) return;
+  // Initialize data only once after restoration
+  useEffect(() => {
+    if (isRestoring || hasInitialized.current) return;
 
-		const currentData = queryClient.getQueryData<Interaction[]>([
-			"interactions",
-			agentId,
-			sessionId,
-		]);
-		console.log("Data after restoration:", currentData);
+    const currentData = queryClient.getQueryData<Interaction[]>([
+      "interactions",
+      agentId,
+      sessionId,
+    ]);
+    console.log("Data after restoration:", currentData);
 
-		// If we have no data after restoration and we have initial interactions, set them
-		if (
-			(!currentData || currentData.length === 0) &&
-			initialInteractionsParsed.length > 0
-		) {
-			console.log(
-				"Setting initial interactions after restoration (no persisted data)",
-			);
-			queryClient.setQueryData(
-				["interactions", agentId, sessionId],
-				initialInteractionsParsed.filter((i) => i.id !== "new"),
-			);
-		}
+    // If we have no data after restoration and we have initial interactions, set them
+    if (
+      (!currentData || currentData.length === 0) &&
+      initialInteractionsParsed.length > 0
+    ) {
+      console.log(
+        "Setting initial interactions after restoration (no persisted data)",
+      );
+      queryClient.setQueryData(
+        ["interactions", agentId, sessionId],
+        initialInteractionsParsed.filter((i) => i.id !== "new"),
+      );
+    }
 
-		hasInitialized.current = true;
-	}, [isRestoring, queryClient, sessionId, initialInteractionsParsed]);
+    hasInitialized.current = true;
+  }, [isRestoring, queryClient, sessionId, initialInteractionsParsed]);
 
-	useEffect(() => {
-		const listener = () => {
-			queryClient.setQueryData(["interactions", agentId, sessionId], []);
-		};
+  useEffect(() => {
+    const listener = () => {
+      queryClient.setQueryData(["interactions", agentId, sessionId], []);
+    };
 
-		window.addEventListener("tsmclearmessages", listener);
+    window.addEventListener("tsmclearmessages", listener);
 
-		return () => {
-			window.removeEventListener("tsmclearmessages", listener);
-		};
-	}, [queryClient, sessionId]);
+    return () => {
+      window.removeEventListener("tsmclearmessages", listener);
+    };
+  }, [queryClient, sessionId]);
 
-	// Show loading state while restoring
-	if (isRestoring) {
-		return (
-			<Stack
-				py="4"
-				px={expanded ? { base: "4", md: "8" } : undefined}
-				alignItems="center"
-				justifyContent="center"
-				h="100%"
-				maxH="100dvh"
-				style={{ background: "var(--ts-chat-bg, white)" }}
-			>
-				<Text>Loading chat history...</Text>
-			</Stack>
-		);
-	}
+  // Show loading state while restoring
+  if (isRestoring) {
+    return (
+      <Stack
+        py="4"
+        px={expanded ? { base: "4", md: "8" } : undefined}
+        alignItems="center"
+        justifyContent="center"
+        h="100%"
+        maxH="100dvh"
+        style={{ background: "var(--ts-chat-bg, white)" }}
+      >
+        <Text>Loading chat history...</Text>
+      </Stack>
+    );
+  }
 
-	return (
-		<>
-			<style>
-				{`
+  return (
+    <>
+      <style>
+        {`
           .github-light {
             background-color: transparent !important;
           }
@@ -444,1060 +448,1169 @@ function ChatContainer({
         @layer tokens {
           :host, .light, .dark {
             ${Object.keys(themeParsed)
-							.map((key) => `${key}: ${themeParsed[key]};`)
-							.join("\n")}
+              .map((key) => `${key}: ${themeParsed[key]};`)
+              .join("\n")}
           }
         }
         `}
-			</style>
-			<Stack
-				py="4"
-				px={expanded ? { base: "4", md: "8" } : undefined}
-				alignItems={interactions?.length ? "flex-start" : "center"}
-				justifyContent={interactions?.length ? undefined : "center"}
-				h="100%"
-				maxH="100dvh"
-				style={{ background: "var(--ts-chat-bg, white)" }}
-			>
-				{(headerConfigParsed?.show || !interactions?.length) && (
-					<ChatHeader
-						expanded={expanded}
-						setExpanded={setExpanded}
-						fullScreenRef={fullScreenRef}
-						playingUrl={playingUrl}
-						TTS={TTS}
-						setTTS={setTTS}
-						headerConfig={{
-							...headerConfigParsed,
-							showAvatar: !interactions?.length
-								? true
-								: headerConfigParsed.showAvatar,
-						}}
-						stopAudio={stopAudio}
-						agentName={agentName}
-					/>
-				)}
-				{interactions?.length ? (
-					<Messages
-						TTS={TTS}
-						interactions={interactions || []}
-						playingUrl={playingUrl}
-						playAudio={playAudio}
-						withDebug={withDebug}
-						stopAudio={stopAudio}
-						headerConfig={headerConfigParsed}
-						codeTheme={codeTheme}
-						maxWidth={themeParsed["--ts-messages-max-width"] || undefined}
-					/>
-				) : null}
-				<Box
-					mt={interactions?.length ? "8" : "0"}
-					w="100%"
-					flex="0 0 auto"
-					maxW={themeParsed["--ts-messages-max-width"] || undefined}
-					mx="auto"
-				>
-					<ChatInput
-						defaultMode="text-first"
-						socket={socket}
-						playAudio={playAudio}
-						host={host}
-						streaming={!!streaming}
-						sessionId={sessionId}
-						sessionIdStorage={sessionIdStorage}
-						instanceId={instanceId}
-						agentId={agentId}
-						TTS={TTS}
-						stopAudio={stopAudio}
-						setTTS={setTTS}
-					/>
-				</Box>
-			</Stack>
-		</>
-	);
+      </style>
+      <Stack
+        py="4"
+        px={expanded ? { base: "4", md: "8" } : undefined}
+        alignItems={interactions?.length ? "flex-start" : "center"}
+        justifyContent={interactions?.length ? undefined : "center"}
+        h="100%"
+        maxH="100dvh"
+        style={{ background: "var(--ts-chat-bg, white)" }}
+      >
+        {(headerConfigParsed?.show || !interactions?.length) && (
+          <ChatHeader
+            expanded={expanded}
+            setExpanded={setExpanded}
+            fullScreenRef={fullScreenRef}
+            playingUrl={playingUrl}
+            TTS={TTS}
+            setTTS={setTTS}
+            headerConfig={{
+              ...headerConfigParsed,
+              showAvatar: !interactions?.length
+                ? true
+                : headerConfigParsed.showAvatar,
+            }}
+            stopAudio={stopAudio}
+            agentName={agentName}
+          />
+        )}
+        {interactions?.length ? (
+          <Messages
+            TTS={TTS}
+            interactions={interactions || []}
+            playingUrl={playingUrl}
+            playAudio={playAudio}
+            withDebug={withDebug}
+            stopAudio={stopAudio}
+            headerConfig={headerConfigParsed}
+            codeTheme={codeTheme}
+            maxWidth={themeParsed["--ts-messages-max-width"] || undefined}
+          />
+        ) : null}
+        <Box
+          mt={interactions?.length ? "8" : "0"}
+          w="100%"
+          flex="0 0 auto"
+          maxW={themeParsed["--ts-messages-max-width"] || undefined}
+          mx="auto"
+        >
+          <ChatInput
+            defaultMode="text-first"
+            playAudio={playAudio}
+            host={host}
+            streaming={!!streaming}
+            sessionId={sessionId || ""}
+            sessionIdStorage={sessionIdStorage}
+            instanceId={instanceId}
+            agentId={agentId}
+            userId={userId}
+            channel={channel}
+            TTS={TTS}
+            stopAudio={stopAudio}
+            setTTS={setTTS}
+            enabledFileButton={enableFileButton}
+          />
+        </Box>
+      </Stack>
+    </>
+  );
 }
 
 // Update ChatInput component to use TanStack Query mutations
 export function ChatInput({
-	sessionId,
-	agentId,
-	streaming,
-	playAudio,
-	instanceId,
-	TTS,
-	host,
-	stopAudio,
-	setTTS,
-	socket,
-	defaultMode = "text-first",
-	sessionIdStorage,
+  sessionId,
+  agentId,
+  streaming,
+  playAudio,
+  instanceId,
+  TTS,
+  host,
+  stopAudio,
+  setTTS,
+  userId,
+  channel,
+  defaultMode = "text-first",
+  sessionIdStorage,
+  enabledFileButton,
 }: {
-	defaultMode: "text-first" | "voice-first";
-	sessionId: string;
-	agentId: string;
-	streaming: boolean;
-	playAudio: (audioUrl: string) => void;
-	host?: string;
-	instanceId?: string;
-	TTS: boolean;
-	stopAudio: () => void;
-	setTTS: React.Dispatch<SetStateAction<boolean>>;
-	socket: WebSocket;
-	sessionIdStorage: AppProps["sessionIdStorage"];
+  defaultMode: "text-first" | "voice-first";
+  sessionId: string;
+  agentId: string;
+  streaming: boolean;
+  playAudio: (audioUrl: string) => void;
+  host?: string;
+  instanceId?: string;
+  TTS: boolean;
+  stopAudio: () => void;
+  setTTS: React.Dispatch<SetStateAction<boolean>>;
+  userId?: string;
+  channel?: string;
+  sessionIdStorage: AppProps["sessionIdStorage"];
+  enabledFileButton: boolean;
 }) {
-	const [mode, setDefaultMode] = useState(defaultMode);
-	const hostURL = host || "https://app.trueselph.com";
-	const [content, setContent] = useState("");
-	const [transcribeContent, setTranscribeContent] = useState("");
-	const [_contentDraft, setContentDraft] = useState("");
-	const [_userMsgIndex, setUserMsgIndex] = useState(0);
-	const defaultStorageMode = "localstorage";
+  const [mode, setDefaultMode] = useState(defaultMode);
+  const hostURL = host || "https://app.trueselph.com";
+  const [content, setContent] = useState("");
+  const [transcribeContent, setTranscribeContent] = useState("");
+  const [_contentDraft, setContentDraft] = useState("");
+  const [_userMsgIndex, setUserMsgIndex] = useState(0);
+  const defaultStorageMode = "localstorage";
 
-	const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
 
-	const recorderControls = useVoiceVisualizer();
-	const {
-		mediaRecorder,
-		isRecordingInProgress: isRecording,
-		startRecording,
-		stopRecording,
-		recordedBlob: recordingBlob,
-		audioData,
-	} = recorderControls;
+  const recorderControls = useVoiceVisualizer();
+  const {
+    mediaRecorder,
+    isRecordingInProgress: isRecording,
+    startRecording,
+    stopRecording,
+    recordedBlob: recordingBlob,
+    audioData,
+  } = recorderControls;
 
-	const interactWithoutStreaming = async (variables: {
-		sessionId: string;
-		content: string;
-	}) => {
-		const sessionId =
-			variables.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-			undefined;
-		const fullResult = await fetch(`${hostURL}/interact`, {
-			method: "POST",
-			body: JSON.stringify({
-				agent_id: agentId,
-				utterance: variables.content,
-				instance_id: instanceId ? instanceId : undefined,
-				session_id: sessionId,
-				tts: TTS,
-				verbose: true,
-				streaming: false,
-			}),
-			headers: {
-				"Content-Type": hostURL?.includes("app.trueselph.com")
-					? "text/plain"
-					: "application/json",
-			},
-		})
-			.then((res) => {
-				return res.json();
-			})
-			.then((res) => {
-				const result = Array.isArray(res?.reports) ? res?.reports?.[0] : res;
-				return result;
-			});
+  const interactWithoutStreaming = async (variables: {
+    sessionId: string;
+    content: string;
+  }) => {
+    const sessionId =
+      variables.sessionId ||
+      getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
+      undefined;
+    const fullResult = await fetch(`${hostURL}/api/agents/${agentId}/interact`, {
+      method: "POST",
+      body: JSON.stringify({
+        utterance: variables.content,
+        session_id: sessionId,
+        user_id: userId,
+        channel: channel || "web",
+        stream: false,
+        data: instanceId ? { instance_id: instanceId } : undefined,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => {
+        return res.json();
+      });
 
-		if (!sessionId || fullResult.response?.session_id !== sessionId) {
-			saveSessionId(
-				fullResult.response?.session_id,
-				sessionIdStorage || defaultStorageMode,
-				agentId,
-			);
-		}
+    if (!sessionId || fullResult.session_id !== sessionId) {
+      saveSessionId(
+        fullResult.session_id,
+        sessionIdStorage || defaultStorageMode,
+        agentId,
+      );
+    }
 
-		return [fullResult];
-	};
+    const transformedInteraction: Interaction = {
+      id: fullResult.interaction?.id || `int_${Date.now()}`,
+      agent_id: agentId,
+      channel: "web",
+      utterance: variables.content,
+      tokens: 0,
+      time_stamp: new Date().toISOString(),
+      trail: fullResult.interaction?.actions || [],
+      intents: [],
+      functions: {},
+      directives: [],
+      context_data: { new_user: false, ModelActionResult: [] },
+      events: [],
+      response: {
+        session_id: fullResult.session_id || "",
+        message_type: "TEXT",
+        message: {
+          message_type: "TEXT",
+          content: fullResult.response || "",
+          meta: {},
+        },
+        tokens: 0,
+      },
+      data: {},
+      closed: true,
+    };
 
-	let fullContent = "";
+    return [transformedInteraction];
+  };
 
-	const interactWithStreaming = async (variables: {
-		sessionId: string;
-		content: string;
-	}) => {
-		const sessionId =
-			variables.sessionId ||
-			getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-			undefined;
+  let fullContent = "";
 
-		return new Promise((resolve, reject) => {
-			if (socket?.readyState === WebSocket.OPEN) {
-				socket.onmessage = (event) => {
-					const data = JSON.parse(event.data);
-					const response = data.data;
+  const interactWithStreaming = async (variables: {
+    sessionId: string;
+    content: string;
+  }) => {
+    const sessionId =
+      variables.sessionId ||
+      getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
+      undefined;
 
-					if (data.type === "connection") {
-						socket.send(
-							JSON.stringify({
-								type: "walker",
-								walker: "interact",
-								response: true,
-								context: {
-									agent_id: agentId,
-									utterance: variables.content,
-									session_id: sessionId,
-									tts: false,
-									verbose: false,
-									streaming: true,
-									data: {
-										client_id: response.client_id,
-									},
-								},
-							}),
-						);
-					}
+    const response = await fetch(
+      `${hostURL}/api/agents/${agentId}/interact`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          utterance: variables.content,
+          session_id: sessionId,
+          user_id: userId,
+          channel: channel || "web",
+          stream: true,
+          data: instanceId ? { instance_id: instanceId } : undefined,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      },
+    );
 
-					if (data.type === "chat" && response) {
-						fullContent += response.content;
-						const isFinal = response.metadata?.finish_reason === "stop";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
 
-						// Update interaction using mutation
-						updateInteraction({
-							interaction: {
-								utterance: content,
-								isFinal: isFinal,
-								id: response.id,
-								response: {
-									session_id: response.session_id,
-									message_type: "TEXT",
-									message: {
-										message_type: "TEXT",
-										content: fullContent,
-									},
-								},
-							},
-						} as unknown as any);
+    if (!reader) {
+      throw new Error("Response body is not readable");
+    }
 
-						if (isFinal) {
-							resolve(response);
-						}
-					}
-				};
+    let interactionId = "";
+    let currentSessionId = sessionId;
 
-				socket.send(JSON.stringify({ type: "connection" }));
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-				controller.current?.signal.addEventListener("abort", () => {
-					socket.onmessage = null;
-					controller.current = new AbortController();
-					reject();
-				});
-			}
-		}) as Promise<Interaction>;
-	};
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
 
-	// Replace useSWRMutation with useMutation for non-streaming
-	const { mutate: triggerWithoutStreaming, isPending: isMutating } =
-		useMutation({
-			mutationFn: interactWithoutStreaming,
-			onSuccess: (data, _variables) => {
-				console.log("Non-streaming mutation success:", data);
-				const [interaction] = data;
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
 
-				// Update the cache with the actual response
-				queryClient.setQueryData(
-					["interactions", agentId, sessionId],
-					(old: Interaction[] = []) => {
-						// Remove the optimistic update (id: "new") and add the actual interaction
-						const filtered = old.filter((i) => i.id !== "new");
-						return [...filtered, interaction];
-					},
-				);
+              if (event.type === "start") {
+                interactionId = event.interaction_id || "";
+                if (event.session_id) {
+                  currentSessionId = event.session_id;
+                  saveSessionId(
+                    event.session_id,
+                    sessionIdStorage || defaultStorageMode,
+                    agentId,
+                  );
+                }
+              }
 
-				if (interaction?.response?.audio_url && TTS) {
-					playAudio(interaction.response.audio_url);
-				}
-				setContent("");
-				setTranscribeContent("");
-			},
-			onMutate: async (variables) => {
-				// Optimistic update
-				await queryClient.cancelQueries({
-					queryKey: ["interactions", agentId, sessionId],
-				});
+              if (event.type === "message" && event.message) {
+                fullContent += event.message.content;
 
-				const previousInteractions = queryClient.getQueryData([
-					"interactions",
-					agentId,
-					sessionId,
-				]);
+                updateInteraction({
+                  interaction: {
+                    utterance: variables.content,
+                    isFinal: false,
+                    id: interactionId || "stream",
+                    response: {
+                      session_id: currentSessionId || "",
+                      message_type: "TEXT",
+                      message: {
+                        message_type: "TEXT",
+                        content: fullContent,
+                      },
+                    },
+                  },
+                } as unknown as any);
+              }
 
-				queryClient.setQueryData(
-					["interactions", agentId, sessionId],
-					(old: Interaction[] = []) => [
-						...old.filter((i) => !!i.id && !!i.response?.message),
-						{
-							id: "new",
-							utterance: transcribeContent || variables.content,
-							timestamp: new Date().toISOString(),
-						},
-					],
-				);
+              if (event.type === "final") {
+                if (event.session_id) {
+                  currentSessionId = event.session_id;
+                }
 
-				return { previousInteractions };
-			},
-			onError: (err, _variables, context) => {
-				console.error("Non-streaming mutation error:", err);
-				// Revert optimistic update on error
-				if (context?.previousInteractions) {
-					queryClient.setQueryData(
-						["interactions", agentId, sessionId],
-						context.previousInteractions,
-					);
-				}
-				// Still clear the input on error
-				setContent("");
-				setTranscribeContent("");
-			},
-		}); // Replace useSWRMutation with useMutation for streaming
+                updateInteraction({
+                  interaction: {
+                    utterance: variables.content,
+                    isFinal: true,
+                    id: interactionId || "stream",
+                    response: {
+                      session_id: currentSessionId || "",
+                      message_type: "TEXT",
+                      message: {
+                        message_type: "TEXT",
+                        content: event.response || fullContent,
+                      },
+                    },
+                  },
+                } as unknown as any);
 
-	const { mutate: triggerWithStreaming, isPending: isStreaming } = useMutation({
-		mutationFn: interactWithStreaming,
-		onSuccess: () => {
-			console.log("Streaming mutation success");
-			setContent("");
-			setTranscribeContent("");
-		},
-		onMutate: async (variables) => {
-			await queryClient.cancelQueries({
-				queryKey: ["interactions", agentId, sessionId],
-			});
+                return {
+                  utterance: variables.content,
+                  id: interactionId || "stream",
+                  response: {
+                    session_id: currentSessionId || "",
+                    message_type: "TEXT",
+                    message: {
+                      message_type: "TEXT",
+                      content: event.response || fullContent,
+                    },
+                  },
+                };
+              }
+            } catch (e) {
+              console.warn("Failed to parse SSE event:", e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
 
-			const previousInteractions = queryClient.getQueryData([
-				"interactions",
-				agentId,
-				sessionId,
-			]);
+    return {
+      utterance: variables.content,
+      id: interactionId || "stream",
+      response: {
+        session_id: currentSessionId || "",
+        message_type: "TEXT",
+        message: {
+          message_type: "TEXT",
+          content: fullContent,
+        },
+      },
+    };
+  };
 
-			queryClient.setQueryData(
-				["interactions", agentId, sessionId],
-				(old: Interaction[] = []) => [
-					...old,
-					{
-						id: "stream",
-						utterance: variables.content,
-						timestamp: new Date().toISOString(),
-					},
-				],
-			);
+  // Replace useSWRMutation with useMutation for non-streaming
+  const { mutate: triggerWithoutStreaming, isPending: isMutating } =
+    useMutation({
+      mutationFn: interactWithoutStreaming,
+      onSuccess: (data, _variables) => {
+        console.log("Non-streaming mutation success:", data);
+        const [interaction] = data;
 
-			return { previousInteractions };
-		},
-		onError: (err) => {
-			console.error("Streaming mutation error:", err);
-			// Remove any incomplete stream interactions
-			queryClient.setQueryData(
-				["interactions", agentId, sessionId],
-				(old: Interaction[] = []) =>
-					old.filter((i) => !i.id?.startsWith("stream")),
-			);
-		},
-	});
+        // Update the cache with the actual response
+        queryClient.setQueryData(
+          ["interactions", agentId, sessionId],
+          (old: Interaction[] = []) => {
+            // Remove the optimistic update (id: "new") and add the actual interaction
+            const filtered = old.filter((i) => i.id !== "new");
+            return [...filtered, interaction];
+          },
+        );
 
-	// Mutation for updating interactions
-	const { mutate: updateInteraction } = useMutation({
-		mutationFn: async ({
-			interaction,
-		}: {
-			interaction: Interaction & { isFinal?: boolean };
-		}) => {
-			return interaction;
-		},
-		onSuccess: (interaction) => {
-			queryClient.setQueryData(
-				["interactions", agentId, sessionId],
-				(old: Interaction[] = []) => {
-					const filtered = old.filter(
-						(i) =>
-							!(i?.id?.startsWith("stream") || i?.id === interaction?.id) &&
-							!!i?.response?.message?.content,
-					);
-					return [...filtered, interaction];
-				},
-			);
-		},
-	});
+        if (interaction?.response?.audio_url && TTS) {
+          playAudio(interaction.response.audio_url);
+        }
+        setContent("");
+        setTranscribeContent("");
+      },
+      onMutate: async (variables) => {
+        // Optimistic update
+        await queryClient.cancelQueries({
+          queryKey: ["interactions", agentId, sessionId],
+        });
 
-	// Clear stalled interactions
-	const clearStalledInteractions = useCallback(() => {
-		queryClient.setQueryData(
-			["interactions", agentId, sessionId],
-			(old: Interaction[] = []) => old.filter((i) => i.id !== "new"),
-		);
-	}, [queryClient, sessionId]);
+        const previousInteractions = queryClient.getQueryData([
+          "interactions",
+          agentId,
+          sessionId,
+        ]);
 
-	const onContentChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-		const { value } = event.currentTarget;
-		setContent(value);
-		setContentDraft(value);
-		setUserMsgIndex(0);
-	};
+        queryClient.setQueryData(
+          ["interactions", agentId, sessionId],
+          (old: Interaction[] = []) => [
+            ...old.filter((i) => !!i.id && !!i.response?.message),
+            {
+              id: "new",
+              utterance: transcribeContent || variables.content,
+              timestamp: new Date().toISOString(),
+            },
+          ],
+        );
 
-	let controller = useRef<AbortController>(new AbortController());
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
+        return { previousInteractions };
+      },
+      onError: (err, _variables, context) => {
+        console.error("Non-streaming mutation error:", err);
+        // Revert optimistic update on error
+        if (context?.previousInteractions) {
+          queryClient.setQueryData(
+            ["interactions", agentId, sessionId],
+            context.previousInteractions,
+          );
+        }
+        // Still clear the input on error
+        setContent("");
+        setTranscribeContent("");
+      },
+    }); // Replace useSWRMutation with useMutation for streaming
 
-	const handleStreamAction = useCallback(async () => {
-		try {
-			if (isStreaming) {
-				controller.current.abort();
-			} else {
-				sendMessage();
-			}
-		} catch (err) {
-			console.log(err);
-		}
-	}, [sessionId, content, isStreaming, controller.current]);
+  const { mutate: triggerWithStreaming, isPending: isStreaming } = useMutation({
+    mutationFn: interactWithStreaming,
+    onSuccess: () => {
+      console.log("Streaming mutation success");
+      setContent("");
+      setTranscribeContent("");
+    },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({
+        queryKey: ["interactions", agentId, sessionId],
+      });
 
-	const sendMessage = useCallback(
-		async (utterance?: string) => {
-			const messageContent = utterance || content;
-			const variables = { content: messageContent, sessionId };
+      const previousInteractions = queryClient.getQueryData([
+        "interactions",
+        agentId,
+        sessionId,
+      ]);
 
-			if (streaming) {
-				triggerWithStreaming(variables);
-			} else {
-				triggerWithoutStreaming(variables);
-			}
-		},
-		[
-			content,
-			sessionId,
-			streaming,
-			triggerWithStreaming,
-			triggerWithoutStreaming,
-		],
-	);
+      queryClient.setQueryData(
+        ["interactions", agentId, sessionId],
+        (old: Interaction[] = []) => [
+          ...old,
+          {
+            id: "stream",
+            utterance: variables.content,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      );
 
-	const { transcribe } = useTranscribe({
-		agentId,
-		sessionId,
-		instanceId,
-		host: host as string,
-	});
+      return { previousInteractions };
+    },
+    onError: (err) => {
+      console.error("Streaming mutation error:", err);
+      // Remove any incomplete stream interactions
+      queryClient.setQueryData(
+        ["interactions", agentId, sessionId],
+        (old: Interaction[] = []) =>
+          old.filter((i) => !i.id?.startsWith("stream")),
+      );
+    },
+  });
 
-	useEffect(() => {
-		const handleSetContent = (e: CustomEvent<{ message: string }>) => {
-			if (e.detail?.message) {
-				setContent(e.detail.message);
-			}
-		};
+  // Mutation for updating interactions
+  const { mutate: updateInteraction } = useMutation({
+    mutationFn: async ({
+      interaction,
+    }: {
+      interaction: Interaction & { isFinal?: boolean };
+    }) => {
+      return interaction;
+    },
+    onSuccess: (interaction) => {
+      queryClient.setQueryData(
+        ["interactions", agentId, sessionId],
+        (old: Interaction[] = []) => {
+          const filtered = old.filter(
+            (i) =>
+              !(i?.id?.startsWith("stream") || i?.id === interaction?.id) &&
+              !!i?.response?.message?.content,
+          );
+          return [...filtered, interaction];
+        },
+      );
+    },
+  });
 
-		const handleSendMessage = () => {
-			sendMessage(content);
-		};
+  // Clear stalled interactions
+  const clearStalledInteractions = useCallback(() => {
+    queryClient.setQueryData(
+      ["interactions", agentId, sessionId],
+      (old: Interaction[] = []) => old.filter((i) => i.id !== "new"),
+    );
+  }, [queryClient, sessionId]);
 
-		window.addEventListener(
-			"tssetmsgcontent",
-			handleSetContent as EventListener,
-		);
-		window.addEventListener("tssendmsg", handleSendMessage);
+  const onContentChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const { value } = event.currentTarget;
+    setContent(value);
+    setContentDraft(value);
+    setUserMsgIndex(0);
+  };
 
-		return () => {
-			window.removeEventListener(
-				"tssetmsgcontent",
-				handleSetContent as EventListener,
-			);
-			window.removeEventListener("tssendmsg", handleSendMessage);
-		};
-	}, [content, sendMessage]);
+  let controller = useRef<AbortController>(new AbortController());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-	useEffect(() => {
-		if (!recordingBlob) return;
+  const handleStreamAction = useCallback(async () => {
+    try {
+      if (isStreaming) {
+        controller.current.abort();
+      } else {
+        sendMessage();
+      }
+    } catch (err) {
+      console.log(err);
+    }
+  }, [sessionId, content, isStreaming, controller.current]);
 
-		transcribe(recordingBlob).then(async (res) => {
-			const result = (await res.json()) as {
-				reports?: Array<{ transcript: string; success: boolean }>;
-				success?: boolean;
-				transcript?: string;
-			};
+  const sendMessage = useCallback(
+    async (utterance?: string) => {
+      const messageContent = utterance || content;
+      const variables = { content: messageContent, sessionId };
 
-			const transcript = result.reports?.[0]?.transcript || result?.transcript;
+      if (streaming) {
+        triggerWithStreaming(variables);
+      } else {
+        triggerWithoutStreaming(variables);
+      }
+    },
+    [
+      content,
+      sessionId,
+      streaming,
+      triggerWithStreaming,
+      triggerWithoutStreaming,
+    ],
+  );
 
-			if (transcript) {
-				setTranscribeContent(transcript || "");
-			}
+  const { transcribe } = useTranscribe({
+    agentId,
+    sessionId,
+    instanceId,
+    host: host as string,
+  });
 
-			return result;
-		});
-	}, [recordingBlob]);
+  useEffect(() => {
+    const handleSetContent = (e: CustomEvent<{ message: string }>) => {
+      if (e.detail?.message) {
+        setContent(e.detail.message);
+      }
+    };
 
-	useEffect(() => {
-		if (transcribeContent) sendMessage(transcribeContent);
-	}, [transcribeContent]);
+    const handleSendMessage = () => {
+      sendMessage(content);
+    };
 
-	useEffect(() => {
-		clearStalledInteractions();
-	}, [clearStalledInteractions]);
+    window.addEventListener(
+      "tssetmsgcontent",
+      handleSetContent as EventListener,
+    );
+    window.addEventListener("tssendmsg", handleSendMessage);
 
-	useEffect(() => {
-		if (textareaRef?.current) textareaRef?.current?.focus();
-	}, [textareaRef?.current]);
+    return () => {
+      window.removeEventListener(
+        "tssetmsgcontent",
+        handleSetContent as EventListener,
+      );
+      window.removeEventListener("tssendmsg", handleSendMessage);
+    };
+  }, [content, sendMessage]);
 
-	// Keep the rest of your ChatInput JSX unchanged
-	return (
-		<>
-			{mode == "voice-first" && (
-				<VoiceChatInput
-					host={host!}
-					agentId={agentId}
-					setDefaultMode={setDefaultMode}
-					audioData={audioData}
-					isRecording={isRecording}
-					recordingBlob={recordingBlob}
-					startRecording={startRecording}
-					sessionId={sessionId}
-					instanceId={instanceId!}
-					stopRecording={stopRecording}
-					setTranscribeContent={setTranscribeContent}
-					stopAudio={stopAudio}
-				/>
-			)}
+  useEffect(() => {
+    if (!recordingBlob) return;
 
-			{mode == "text-first" && (
-				<Card.Root
-					gap="0"
-					p="0"
-					bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-					borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-					rounded={"3xl"}
-					w="100%"
-					maxW="100%"
-					style={{ overflow: "hidden" }}
-				>
-					<Card.Body p="0">
-						{!mediaRecorder ? (
-							<Textarea
-								ref={textareaRef}
-								color={"var(--ts-input-color, black)"}
-								_placeholder={{
-									color: "var(--ts-input-placeholder-color, black)",
-								}}
-								placeholder="Your message here..."
-								autoFocus
-								outline={"none"}
-								autoresize
-								maxH="14lh"
-								disabled={isMutating || isStreaming}
-								border="none"
-								size="lg"
-								rounded={"3xl"}
-								rows={1}
-								value={content}
-								onChange={onContentChange}
-								onKeyDown={async (event) => {
-									if (event.code === "Enter" && !event.shiftKey) {
-										event.preventDefault();
-										if (content.trim().length > 0) {
-											sendMessage();
-										}
-									}
-								}}
-							/>
-						) : (
-							<VoiceVisualizer
-								isControlPanelShown={false}
-								height={40}
-								width={"100%"}
-								controls={recorderControls}
-								rounded={8}
-								barWidth={3}
-								mainBarColor="black"
-								backgroundColor="#EFF6FF"
-								fullscreen
-								animateCurrentPick
-								isProgressIndicatorTimeShown
-								speed={1}
-							/>
-						)}
-					</Card.Body>
-					<Card.Footer py="2" px="0">
-						<Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
-							<Flex gap="1" justify="start" w="100%" px="2" pb="0">
-								<IconButton
-									variant={isRecording ? "solid" : "subtle"}
-									rounded="3xl"
-									colorPalette={isRecording ? "red" : "gray"}
-									size="sm"
-									onClick={() => {
-										setDefaultMode("voice-first");
-										stopAudio();
-										isRecording ? stopRecording() : startRecording();
-									}}
-								>
-									{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
-								</IconButton>
+    transcribe(recordingBlob).then(async (res) => {
+      const result = (await res.json()) as {
+        reports?: Array<{ transcript: string; success: boolean }>;
+        success?: boolean;
+        transcript?: string;
+      };
 
-								<IconButton
-									colorPalette="gray"
-									rounded="3xl"
-									size="sm"
-									onClick={() => {
-										if (TTS) stopAudio();
-										setTTS((prev) => !prev);
-									}}
-								>
-									{TTS ? <LuVolume2 /> : <LuVolumeOff />}
-								</IconButton>
-							</Flex>
+      const transcript = result.reports?.[0]?.transcript || result?.transcript;
 
-							<IconButton
-								colorPalette="gray"
-								rounded="3xl"
-								size="sm"
-								onClick={handleStreamAction}
-								disabled={!(isMutating && !isStreaming) && !content}
-								loading={isMutating && !isStreaming}
-							>
-								{isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
-							</IconButton>
-						</Flex>
-					</Card.Footer>
-				</Card.Root>
-			)}
-		</>
-	);
+      if (transcript) {
+        setTranscribeContent(transcript || "");
+      }
+
+      return result;
+    });
+  }, [recordingBlob]);
+
+  useEffect(() => {
+    if (transcribeContent) sendMessage(transcribeContent);
+  }, [transcribeContent]);
+
+  useEffect(() => {
+    clearStalledInteractions();
+  }, [clearStalledInteractions]);
+
+  useEffect(() => {
+    if (textareaRef?.current) textareaRef?.current?.focus();
+  }, [textareaRef?.current]);
+
+  // Keep the rest of your ChatInput JSX unchanged
+  return (
+    <>
+      {mode == "voice-first" && (
+        <VoiceChatInput
+          host={host!}
+          agentId={agentId}
+          setDefaultMode={setDefaultMode}
+          audioData={audioData}
+          isRecording={isRecording}
+          recordingBlob={recordingBlob}
+          startRecording={startRecording}
+          sessionId={sessionId}
+          instanceId={instanceId!}
+          stopRecording={stopRecording}
+          setTranscribeContent={setTranscribeContent}
+          stopAudio={stopAudio}
+        />
+      )}
+
+      {mode == "text-first" && (
+        <Card.Root
+          gap="0"
+          p="0"
+          bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+          borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
+          rounded={"3xl"}
+          w="100%"
+          maxW="100%"
+          style={{ overflow: "hidden" }}
+        >
+          <Card.Body p="0">
+            {!mediaRecorder ? (
+              <Textarea
+                ref={textareaRef}
+                color={"var(--ts-input-color, black)"}
+                _placeholder={{
+                  color: "var(--ts-input-placeholder-color, black)",
+                }}
+                placeholder="Your message here..."
+                autoFocus
+                outline={"none"}
+                autoresize
+                maxH="14lh"
+                disabled={isMutating || isStreaming}
+                border="none"
+                size="lg"
+                rounded={"3xl"}
+                rows={1}
+                value={content}
+                onChange={onContentChange}
+                onKeyDown={async (event) => {
+                  if (event.code === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (content.trim().length > 0) {
+                      sendMessage();
+                    }
+                  }
+                }}
+              />
+            ) : (
+              <VoiceVisualizer
+                isControlPanelShown={false}
+                height={40}
+                width={"100%"}
+                controls={recorderControls}
+                rounded={8}
+                barWidth={3}
+                mainBarColor="black"
+                backgroundColor="#EFF6FF"
+                fullscreen
+                animateCurrentPick
+                isProgressIndicatorTimeShown
+                speed={1}
+              />
+            )}
+          </Card.Body>
+          <Card.Footer py="2" px="0">
+            <Flex gap="4" justify="space-between" w="100%" px="2" pb="0">
+              <Flex gap="1" justify="start" w="100%" px="2" pb="0">
+                <IconButton
+                  variant={isRecording ? "solid" : "subtle"}
+                  rounded="3xl"
+                  colorPalette={isRecording ? "red" : "gray"}
+                  size="sm"
+                  onClick={() => {
+                    setDefaultMode("voice-first");
+                    stopAudio();
+                    isRecording ? stopRecording() : startRecording();
+                  }}
+                >
+                  {isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
+                </IconButton>
+
+                <IconButton
+                  colorPalette="gray"
+                  rounded="3xl"
+                  size="sm"
+                  onClick={() => {
+                    if (TTS) stopAudio();
+                    setTTS((prev) => !prev);
+                  }}
+                >
+                  {TTS ? <LuVolume2 /> : <LuVolumeOff />}
+                </IconButton>
+              </Flex>
+
+              <Flex gap="1">
+                {enabledFileButton && (
+                  <IconButton
+                    variant={isRecording ? "solid" : "subtle"}
+                    rounded="3xl"
+                    colorPalette={isRecording ? "red" : "gray"}
+                    size="sm"
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("attachdoc", {}));
+                    }}
+                  >
+                    <AiOutlinePaperClip />
+                  </IconButton>
+                )}
+
+                <IconButton
+                  colorPalette="gray"
+                  rounded="3xl"
+                  size="sm"
+                  onClick={handleStreamAction}
+                  disabled={!(isMutating && !isStreaming) && !content}
+                  loading={isMutating && !isStreaming}
+                >
+                  {isStreaming ? <AiOutlineStop /> : <AiOutlineArrowUp />}
+                </IconButton>
+              </Flex>
+            </Flex>
+          </Card.Footer>
+        </Card.Root>
+      )}
+    </>
+  );
 }
 
 // Highly Reactive Circular Waveform Visualizer with Fixed Clipping
 interface CircularWaveformVisualizerProps {
-	audioUrl: string;
-	isPlaying: boolean;
+  audioUrl: string;
+  isPlaying: boolean;
 }
 
 const CircularWaveformVisualizer = memo(
-	({ audioUrl, isPlaying }: CircularWaveformVisualizerProps) => {
-		const canvasRef = useRef<HTMLCanvasElement>(null);
-		const animationRef = useRef<number | null>(null);
-		const audioContextRef = useRef<AudioContext | null>(null);
-		const analyserRef = useRef<AnalyserNode | null>(null);
-		const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-		const audioElementRef = useRef<HTMLAudioElement | null>(null);
-		const gainNodeRef = useRef<GainNode | null>(null);
+  ({ audioUrl, isPlaying }: CircularWaveformVisualizerProps) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const animationRef = useRef<number | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const analyserRef = useRef<AnalyserNode | null>(null);
+    const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+    const audioElementRef = useRef<HTMLAudioElement | null>(null);
+    const gainNodeRef = useRef<GainNode | null>(null);
 
-		// Optimized refs for water droplet effect
-		// const audioHistory = useRef<number[]>(new Array(8).fill(0));
-		const lastCanvasSize = useRef({ width: 0, height: 0 });
-		const rippleHistory = useRef<number[][]>([
-			new Array(12).fill(0), // Droplet 1 ripple history
-			new Array(12).fill(0), // Droplet 2 ripple history
-			new Array(12).fill(0), // Droplet 3 ripple history
-		]);
+    // Optimized refs for water droplet effect
+    // const audioHistory = useRef<number[]>(new Array(8).fill(0));
+    const lastCanvasSize = useRef({ width: 0, height: 0 });
+    const rippleHistory = useRef<number[][]>([
+      new Array(12).fill(0), // Droplet 1 ripple history
+      new Array(12).fill(0), // Droplet 2 ripple history
+      new Array(12).fill(0), // Droplet 3 ripple history
+    ]);
 
-		const initializeAudio = useCallback(async () => {
-			if (!audioUrl) return;
+    const initializeAudio = useCallback(async () => {
+      if (!audioUrl) return;
 
-			try {
-				if (!audioContextRef.current) {
-					audioContextRef.current = new (window.AudioContext ||
-						(window as any).webkitAudioContext)();
-				}
+      try {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (
+            window.AudioContext || (window as any).webkitAudioContext
+          )();
+        }
 
-				const audioContext = audioContextRef.current;
-				if (audioContext.state === "suspended") {
-					await audioContext.resume();
-				}
+        const audioContext = audioContextRef.current;
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
 
-				if (!audioElementRef.current) {
-					const audio = new Audio();
-					audio.crossOrigin = "anonymous";
-					audio.preload = "auto";
-					audio.volume = 1.0;
-					audioElementRef.current = audio;
-				}
+        if (!audioElementRef.current) {
+          const audio = new Audio();
+          audio.crossOrigin = "anonymous";
+          audio.preload = "auto";
+          audio.volume = 1.0;
+          audioElementRef.current = audio;
+        }
 
-				const audio = audioElementRef.current;
+        const audio = audioElementRef.current;
 
-				if (!sourceRef.current && audio) {
-					const analyser = audioContext.createAnalyser();
-					analyser.fftSize = 128;
-					analyser.smoothingTimeConstant = 0.1;
-					analyser.minDecibels = -80;
-					analyser.maxDecibels = -10;
-					analyserRef.current = analyser;
+        if (!sourceRef.current && audio) {
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 128;
+          analyser.smoothingTimeConstant = 0.1;
+          analyser.minDecibels = -80;
+          analyser.maxDecibels = -10;
+          analyserRef.current = analyser;
 
-					const gainNode = audioContext.createGain();
-					gainNode.gain.value = 0;
-					gainNodeRef.current = gainNode;
+          const gainNode = audioContext.createGain();
+          gainNode.gain.value = 0;
+          gainNodeRef.current = gainNode;
 
-					const source = audioContext.createMediaElementSource(audio);
-					source.connect(analyser);
-					analyser.connect(gainNode);
-					gainNode.connect(audioContext.destination);
-					sourceRef.current = source;
-				}
+          const source = audioContext.createMediaElementSource(audio);
+          source.connect(analyser);
+          analyser.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          sourceRef.current = source;
+        }
 
-				if (audio.src !== audioUrl) {
-					audio.src = audioUrl;
-				}
-			} catch (error) {
-				console.error("Error initializing audio:", error);
-			}
-		}, [audioUrl]);
+        if (audio.src !== audioUrl) {
+          audio.src = audioUrl;
+        }
+      } catch (error) {
+        console.error("Error initializing audio:", error);
+      }
+    }, [audioUrl]);
 
-		const dataArray = useRef<Uint8Array>();
+    const dataArray = useRef<Uint8Array>();
 
-		const drawVisualization = useCallback((currentTime: number) => {
-			const canvas = canvasRef.current;
-			const analyser = analyserRef.current;
+    const drawVisualization = useCallback((currentTime: number) => {
+      const canvas = canvasRef.current;
+      const analyser = analyserRef.current;
 
-			if (!canvas || !analyser) return;
+      if (!canvas || !analyser) return;
 
-			const ctx = canvas.getContext("2d");
-			if (!ctx) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-			// Optimize canvas sizing
-			const rect = canvas.getBoundingClientRect();
-			const dpr = window.devicePixelRatio || 1;
-			const scaledWidth = rect.width * dpr;
-			const scaledHeight = rect.height * dpr;
+      // Optimize canvas sizing
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const scaledWidth = rect.width * dpr;
+      const scaledHeight = rect.height * dpr;
 
-			if (
-				lastCanvasSize.current.width !== scaledWidth ||
-				lastCanvasSize.current.height !== scaledHeight
-			) {
-				canvas.width = scaledWidth;
-				canvas.height = scaledHeight;
-				canvas.style.width = rect.width + "px";
-				canvas.style.height = rect.height + "px";
-				ctx.scale(dpr, dpr);
-				lastCanvasSize.current = { width: scaledWidth, height: scaledHeight };
-			}
+      if (
+        lastCanvasSize.current.width !== scaledWidth ||
+        lastCanvasSize.current.height !== scaledHeight
+      ) {
+        canvas.width = scaledWidth;
+        canvas.height = scaledHeight;
+        canvas.style.width = rect.width + "px";
+        canvas.style.height = rect.height + "px";
+        ctx.scale(dpr, dpr);
+        lastCanvasSize.current = { width: scaledWidth, height: scaledHeight };
+      }
 
-			ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.clearRect(0, 0, rect.width, rect.height);
 
-			const centerX = rect.width * 0.5;
-			const centerY = rect.height * 0.5;
+      const centerX = rect.width * 0.5;
+      const centerY = rect.height * 0.5;
 
-			// Get audio data
-			const bufferLength = analyser.frequencyBinCount;
-			if (!dataArray.current || dataArray.current.length !== bufferLength) {
-				dataArray.current = new Uint8Array(bufferLength);
-			}
+      // Get audio data
+      const bufferLength = analyser.frequencyBinCount;
+      if (!dataArray.current || dataArray.current.length !== bufferLength) {
+        dataArray.current = new Uint8Array(bufferLength);
+      }
 
-			analyser.getByteFrequencyData(dataArray.current);
+      analyser.getByteFrequencyData(dataArray.current);
 
-			// Process frequency bands for different droplets
-			let bassSum = 0,
-				midSum = 0,
-				highSum = 0;
+      // Process frequency bands for different droplets
+      let bassSum = 0,
+        midSum = 0,
+        highSum = 0;
 
-			// Bass (1-4), Mid (5-15), High (16-32)
-			for (let i = 1; i <= 4; i++) bassSum += dataArray.current[i];
-			for (let i = 5; i <= 15; i++) midSum += dataArray.current[i];
-			for (let i = 16; i <= 32; i++) highSum += dataArray.current[i];
+      // Bass (1-4), Mid (5-15), High (16-32)
+      for (let i = 1; i <= 4; i++) bassSum += dataArray.current[i];
+      for (let i = 5; i <= 15; i++) midSum += dataArray.current[i];
+      for (let i = 16; i <= 32; i++) highSum += dataArray.current[i];
 
-			const bassLevel = bassSum / (4 * 255);
-			const midLevel = midSum / (11 * 255);
-			const highLevel = highSum / (17 * 255);
+      const bassLevel = bassSum / (4 * 255);
+      const midLevel = midSum / (11 * 255);
+      const highLevel = highSum / (17 * 255);
 
-			// Update ripple histories for each droplet
-			rippleHistory.current[0].shift();
-			rippleHistory.current[0].push(bassLevel);
-			rippleHistory.current[1].shift();
-			rippleHistory.current[1].push(midLevel);
-			rippleHistory.current[2].shift();
-			rippleHistory.current[2].push(highLevel);
+      // Update ripple histories for each droplet
+      rippleHistory.current[0].shift();
+      rippleHistory.current[0].push(bassLevel);
+      rippleHistory.current[1].shift();
+      rippleHistory.current[1].push(midLevel);
+      rippleHistory.current[2].shift();
+      rippleHistory.current[2].push(highLevel);
 
-			const time = currentTime * 0.001;
+      const time = currentTime * 0.001;
 
-			// Draw 3 overlapping water droplets with different properties
-			drawWaterDroplet(
-				ctx,
-				centerX,
-				centerY,
-				68,
-				bassLevel,
-				rippleHistory.current[0],
-				time,
-				0,
-				"rgba(139, 92, 246, 0.4)",
-				0.8,
-			);
-			drawWaterDroplet(
-				ctx,
-				centerX,
-				centerY,
-				75,
-				midLevel,
-				rippleHistory.current[1],
-				time * 1.2,
-				Math.PI * 0.4,
-				"rgba(99, 102, 241, 0.35)",
-				0.9,
-			);
-			drawWaterDroplet(
-				ctx,
-				centerX,
-				centerY,
-				82,
-				highLevel,
-				rippleHistory.current[2],
-				time * 0.7,
-				Math.PI * 0.8,
-				"rgba(75, 85, 235, 0.3)",
-				1.0,
-			);
+      // Draw 3 overlapping water droplets with different properties
+      drawWaterDroplet(
+        ctx,
+        centerX,
+        centerY,
+        68,
+        bassLevel,
+        rippleHistory.current[0],
+        time,
+        0,
+        "rgba(139, 92, 246, 0.4)",
+        0.8,
+      );
+      drawWaterDroplet(
+        ctx,
+        centerX,
+        centerY,
+        75,
+        midLevel,
+        rippleHistory.current[1],
+        time * 1.2,
+        Math.PI * 0.4,
+        "rgba(99, 102, 241, 0.35)",
+        0.9,
+      );
+      drawWaterDroplet(
+        ctx,
+        centerX,
+        centerY,
+        82,
+        highLevel,
+        rippleHistory.current[2],
+        time * 0.7,
+        Math.PI * 0.8,
+        "rgba(75, 85, 235, 0.3)",
+        1.0,
+      );
 
-			animationRef.current = requestAnimationFrame(drawVisualization);
-		}, []);
+      animationRef.current = requestAnimationFrame(drawVisualization);
+    }, []);
 
-		const drawWaterDroplet = useCallback(
-			(
-				ctx: CanvasRenderingContext2D,
-				centerX: number,
-				centerY: number,
-				baseRadius: number,
-				currentIntensity: number,
-				rippleHistory: number[],
-				time: number,
-				phaseOffset: number,
-				fillColor: string,
-				distortionScale: number,
-			) => {
-				const points: { x: number; y: number }[] = [];
-				const numPoints = 48; // High resolution for smooth water effect
+    const drawWaterDroplet = useCallback(
+      (
+        ctx: CanvasRenderingContext2D,
+        centerX: number,
+        centerY: number,
+        baseRadius: number,
+        currentIntensity: number,
+        rippleHistory: number[],
+        time: number,
+        phaseOffset: number,
+        fillColor: string,
+        distortionScale: number,
+      ) => {
+        const points: { x: number; y: number }[] = [];
+        const numPoints = 48; // High resolution for smooth water effect
 
-				// Calculate ripple intensity from history
-				const rippleIntensity =
-					rippleHistory.reduce((sum, val) => sum + val, 0) /
-					rippleHistory.length;
-				const enhancedIntensity =
-					Math.pow(currentIntensity * 2.5, 0.7) * distortionScale;
+        // Calculate ripple intensity from history
+        const rippleIntensity =
+          rippleHistory.reduce((sum, val) => sum + val, 0) /
+          rippleHistory.length;
+        const enhancedIntensity =
+          Math.pow(currentIntensity * 2.5, 0.7) * distortionScale;
 
-				for (let i = 0; i < numPoints; i++) {
-					const angle = (i / numPoints) * Math.PI * 2 + phaseOffset;
+        for (let i = 0; i < numPoints; i++) {
+          const angle = (i / numPoints) * Math.PI * 2 + phaseOffset;
 
-					// Create multiple wave layers for water-like distortion
-					const primaryWave =
-						Math.sin(angle * 3 + time * 2) * enhancedIntensity * 8;
-					const secondaryWave =
-						Math.sin(angle * 6 + time * 3.5) * enhancedIntensity * 4;
-					const tertiaryWave =
-						Math.sin(angle * 12 + time * 5) * enhancedIntensity * 2;
+          // Create multiple wave layers for water-like distortion
+          const primaryWave =
+            Math.sin(angle * 3 + time * 2) * enhancedIntensity * 8;
+          const secondaryWave =
+            Math.sin(angle * 6 + time * 3.5) * enhancedIntensity * 4;
+          const tertiaryWave =
+            Math.sin(angle * 12 + time * 5) * enhancedIntensity * 2;
 
-					// Ripple effect that propagates outward from impact points
-					const rippleEffect =
-						Math.sin(angle * 8 + time * 8) * rippleIntensity * 6;
+          // Ripple effect that propagates outward from impact points
+          const rippleEffect =
+            Math.sin(angle * 8 + time * 8) * rippleIntensity * 6;
 
-					// Surface tension simulation - creates the "droplet" shape
-					const surfaceTension =
-						Math.sin(angle * 2 + time * 1.5) * (1 + enhancedIntensity) * 3;
+          // Surface tension simulation - creates the "droplet" shape
+          const surfaceTension =
+            Math.sin(angle * 2 + time * 1.5) * (1 + enhancedIntensity) * 3;
 
-					// Combine all distortions
-					const totalDistortion =
-						primaryWave +
-						secondaryWave +
-						tertiaryWave +
-						rippleEffect +
-						surfaceTension;
+          // Combine all distortions
+          const totalDistortion =
+            primaryWave +
+            secondaryWave +
+            tertiaryWave +
+            rippleEffect +
+            surfaceTension;
 
-					// Add subtle breathing motion
-					const breathingMotion =
-						Math.sin(time * 2 + angle * 0.5) * (0.5 + enhancedIntensity) * 2;
+          // Add subtle breathing motion
+          const breathingMotion =
+            Math.sin(time * 2 + angle * 0.5) * (0.5 + enhancedIntensity) * 2;
 
-					const finalRadius = baseRadius + totalDistortion + breathingMotion;
+          const finalRadius = baseRadius + totalDistortion + breathingMotion;
 
-					// Calculate position with slight wobble for liquid effect
-					const wobbleX =
-						Math.sin(time * 3 + angle * 2) * enhancedIntensity * 1.5;
-					const wobbleY =
-						Math.cos(time * 3.2 + angle * 2.2) * enhancedIntensity * 1.5;
+          // Calculate position with slight wobble for liquid effect
+          const wobbleX =
+            Math.sin(time * 3 + angle * 2) * enhancedIntensity * 1.5;
+          const wobbleY =
+            Math.cos(time * 3.2 + angle * 2.2) * enhancedIntensity * 1.5;
 
-					const x = centerX + Math.cos(angle) * finalRadius + wobbleX;
-					const y = centerY + Math.sin(angle) * finalRadius + wobbleY;
+          const x = centerX + Math.cos(angle) * finalRadius + wobbleX;
+          const y = centerY + Math.sin(angle) * finalRadius + wobbleY;
 
-					points.push({ x, y });
-				}
+          points.push({ x, y });
+        }
 
-				// Draw smooth water droplet using bezier curves
-				ctx.beginPath();
-				ctx.moveTo(points[0].x, points[0].y);
+        // Draw smooth water droplet using bezier curves
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
 
-				for (let i = 0; i < points.length; i++) {
-					const current = points[i];
-					const next = points[(i + 1) % points.length];
-					// const nextNext = points[(i + 2) % points.length];
+        for (let i = 0; i < points.length; i++) {
+          const current = points[i];
+          const next = points[(i + 1) % points.length];
+          // const nextNext = points[(i + 2) % points.length];
 
-					// Create smooth curves using quadratic bezier
-					const cpX = (current.x + next.x) * 0.5;
-					const cpY = (current.y + next.y) * 0.5;
+          // Create smooth curves using quadratic bezier
+          const cpX = (current.x + next.x) * 0.5;
+          const cpY = (current.y + next.y) * 0.5;
 
-					ctx.quadraticCurveTo(current.x, current.y, cpX, cpY);
-				}
+          ctx.quadraticCurveTo(current.x, current.y, cpX, cpY);
+        }
 
-				ctx.closePath();
+        ctx.closePath();
 
-				// Create water-like gradient
-				const gradient = ctx.createRadialGradient(
-					centerX,
-					centerY,
-					baseRadius * 0.3,
-					centerX,
-					centerY,
-					baseRadius * 1.2,
-				);
+        // Create water-like gradient
+        const gradient = ctx.createRadialGradient(
+          centerX,
+          centerY,
+          baseRadius * 0.3,
+          centerX,
+          centerY,
+          baseRadius * 1.2,
+        );
 
-				// Dynamic gradient based on audio intensity
-				const opacity = Math.min(0.8, 0.3 + enhancedIntensity * 0.5);
-				const centerOpacity = Math.min(0.9, 0.5 + enhancedIntensity * 0.4);
+        // Dynamic gradient based on audio intensity
+        const opacity = Math.min(0.8, 0.3 + enhancedIntensity * 0.5);
+        const centerOpacity = Math.min(0.9, 0.5 + enhancedIntensity * 0.4);
 
-				gradient.addColorStop(
-					0,
-					fillColor.replace(/[\d\.]+\)$/, `${centerOpacity})`),
-				);
-				gradient.addColorStop(
-					0.7,
-					fillColor.replace(/[\d\.]+\)$/, `${opacity * 0.7})`),
-				);
-				gradient.addColorStop(1, fillColor.replace(/[\d\.]+\)$/, "0.05)"));
+        gradient.addColorStop(
+          0,
+          fillColor.replace(/[\d\.]+\)$/, `${centerOpacity})`),
+        );
+        gradient.addColorStop(
+          0.7,
+          fillColor.replace(/[\d\.]+\)$/, `${opacity * 0.7})`),
+        );
+        gradient.addColorStop(1, fillColor.replace(/[\d\.]+\)$/, "0.05)"));
 
-				ctx.fillStyle = gradient;
-				ctx.fill();
+        ctx.fillStyle = gradient;
+        ctx.fill();
 
-				// Add subtle inner highlight for water effect
-				if (enhancedIntensity > 0.3) {
-					const highlightGradient = ctx.createRadialGradient(
-						centerX - baseRadius * 0.2,
-						centerY - baseRadius * 0.2,
-						0,
-						centerX,
-						centerY,
-						baseRadius * 0.6,
-					);
+        // Add subtle inner highlight for water effect
+        if (enhancedIntensity > 0.3) {
+          const highlightGradient = ctx.createRadialGradient(
+            centerX - baseRadius * 0.2,
+            centerY - baseRadius * 0.2,
+            0,
+            centerX,
+            centerY,
+            baseRadius * 0.6,
+          );
 
-					const highlightOpacity = (enhancedIntensity - 0.3) * 0.4;
-					highlightGradient.addColorStop(
-						0,
-						`rgba(255, 255, 255, ${highlightOpacity})`,
-					);
-					highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+          const highlightOpacity = (enhancedIntensity - 0.3) * 0.4;
+          highlightGradient.addColorStop(
+            0,
+            `rgba(255, 255, 255, ${highlightOpacity})`,
+          );
+          highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
 
-					ctx.fillStyle = highlightGradient;
-					ctx.fill();
-				}
+          ctx.fillStyle = highlightGradient;
+          ctx.fill();
+        }
 
-				// Add outer glow for high intensity
-				if (enhancedIntensity > 0.4) {
-					ctx.shadowBlur = 8 + enhancedIntensity * 12;
-					ctx.shadowColor = fillColor.replace(
-						/[\d\.]+\)$/,
-						`${enhancedIntensity * 0.6})`,
-					);
-					ctx.fill();
-					ctx.shadowBlur = 0;
-				}
+        // Add outer glow for high intensity
+        if (enhancedIntensity > 0.4) {
+          ctx.shadowBlur = 8 + enhancedIntensity * 12;
+          ctx.shadowColor = fillColor.replace(
+            /[\d\.]+\)$/,
+            `${enhancedIntensity * 0.6})`,
+          );
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
 
-				// Add surface ripples for very high intensity
-				if (enhancedIntensity > 0.6) {
-					drawSurfaceRipples(
-						ctx,
-						centerX,
-						centerY,
-						baseRadius,
-						enhancedIntensity,
-						time,
-						fillColor,
-					);
-				}
-			},
-			[],
-		);
+        // Add surface ripples for very high intensity
+        if (enhancedIntensity > 0.6) {
+          drawSurfaceRipples(
+            ctx,
+            centerX,
+            centerY,
+            baseRadius,
+            enhancedIntensity,
+            time,
+            fillColor,
+          );
+        }
+      },
+      [],
+    );
 
-		const drawSurfaceRipples = useCallback(
-			(
-				ctx: CanvasRenderingContext2D,
-				centerX: number,
-				centerY: number,
-				baseRadius: number,
-				intensity: number,
-				time: number,
-				color: string,
-			) => {
-				// Draw concentric ripples on the water surface
-				const numRipples = 3;
+    const drawSurfaceRipples = useCallback(
+      (
+        ctx: CanvasRenderingContext2D,
+        centerX: number,
+        centerY: number,
+        baseRadius: number,
+        intensity: number,
+        time: number,
+        color: string,
+      ) => {
+        // Draw concentric ripples on the water surface
+        const numRipples = 3;
 
-				for (let i = 0; i < numRipples; i++) {
-					const rippleRadius =
-						baseRadius + intensity * 15 + Math.sin(time * 6 + i * 2) * 8;
-					const rippleOpacity = (intensity - 0.6) * 0.3 * (1 - i * 0.3);
+        for (let i = 0; i < numRipples; i++) {
+          const rippleRadius =
+            baseRadius + intensity * 15 + Math.sin(time * 6 + i * 2) * 8;
+          const rippleOpacity = (intensity - 0.6) * 0.3 * (1 - i * 0.3);
 
-					if (rippleOpacity > 0) {
-						ctx.beginPath();
-						ctx.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
-						ctx.strokeStyle = color.replace(/[\d\.]+\)$/, `${rippleOpacity})`);
-						ctx.lineWidth = 1 + intensity * 2;
-						ctx.stroke();
-					}
-				}
-			},
-			[],
-		);
+          if (rippleOpacity > 0) {
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, rippleRadius, 0, Math.PI * 2);
+            ctx.strokeStyle = color.replace(/[\d\.]+\)$/, `${rippleOpacity})`);
+            ctx.lineWidth = 1 + intensity * 2;
+            ctx.stroke();
+          }
+        }
+      },
+      [],
+    );
 
-		useEffect(() => {
-			if (!isPlaying) {
-				if (animationRef.current) {
-					cancelAnimationFrame(animationRef.current);
-					animationRef.current = null;
-				}
-				if (audioElementRef.current) {
-					audioElementRef.current.pause();
-				}
-				const canvas = canvasRef.current;
-				if (canvas) {
-					const ctx = canvas.getContext("2d");
-					if (ctx) {
-						ctx.clearRect(0, 0, canvas.width, canvas.height);
-					}
-				}
-				return;
-			}
+    useEffect(() => {
+      if (!isPlaying) {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = null;
+        }
+        if (audioElementRef.current) {
+          audioElementRef.current.pause();
+        }
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          }
+        }
+        return;
+      }
 
-			initializeAudio().then(() => {
-				if (audioElementRef.current && isPlaying) {
-					audioElementRef.current.play().catch(console.error);
-					animationRef.current = requestAnimationFrame(drawVisualization);
-				}
-			});
+      initializeAudio().then(() => {
+        if (audioElementRef.current && isPlaying) {
+          audioElementRef.current.play().catch(console.error);
+          animationRef.current = requestAnimationFrame(drawVisualization);
+        }
+      });
 
-			return () => {
-				if (animationRef.current) {
-					cancelAnimationFrame(animationRef.current);
-				}
-			};
-		}, [audioUrl, isPlaying, initializeAudio, drawVisualization]);
+      return () => {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+        }
+      };
+    }, [audioUrl, isPlaying, initializeAudio, drawVisualization]);
 
-		useEffect(() => {
-			return () => {
-				if (animationRef.current) {
-					cancelAnimationFrame(animationRef.current);
-				}
-				if (audioElementRef.current) {
-					audioElementRef.current.pause();
-					audioElementRef.current.src = "";
-				}
-				if (audioContextRef.current?.state !== "closed") {
-					audioContextRef.current?.close();
-				}
-			};
-		}, []);
+    useEffect(() => {
+      return () => {
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+        }
+        if (audioElementRef.current) {
+          audioElementRef.current.pause();
+          audioElementRef.current.src = "";
+        }
+        if (audioContextRef.current?.state !== "closed") {
+          audioContextRef.current?.close();
+        }
+      };
+    }, []);
 
-		return (
-			<chakra.canvas
-				ref={canvasRef}
-				position="absolute"
-				top="50%"
-				left="50%"
-				width="180px"
-				height="180px"
-				transform="translate(-50%, -50%)"
-				zIndex={0}
-				pointerEvents="none"
-				style={{
-					maxWidth: "180px",
-					maxHeight: "180px",
-				}}
-			/>
-		);
-	},
+    return (
+      <chakra.canvas
+        ref={canvasRef}
+        position="absolute"
+        top="50%"
+        left="50%"
+        width="180px"
+        height="180px"
+        transform="translate(-50%, -50%)"
+        zIndex={0}
+        pointerEvents="none"
+        style={{
+          maxWidth: "180px",
+          maxHeight: "180px",
+        }}
+      />
+    );
+  },
 );
 
 // const CircularWaveformVisualizer = memo(
@@ -2163,751 +2276,751 @@ const CircularWaveformVisualizer = memo(
 // );
 
 function ChatHeader({
-	headerConfig,
-	playingUrl,
-	TTS,
-	setTTS,
-	stopAudio,
-	agentName,
-	fullScreenRef,
-	expanded,
-	setExpanded,
+  headerConfig,
+  playingUrl,
+  TTS,
+  setTTS,
+  stopAudio,
+  agentName,
+  fullScreenRef,
+  expanded,
+  setExpanded,
 }: {
-	playingUrl: string;
-	headerConfig: HeaderConfig;
-	TTS: boolean;
-	setTTS: React.Dispatch<SetStateAction<boolean>>;
-	stopAudio: () => void;
-	agentName: string;
-	fullScreenRef: RefObject<HTMLDivElement>;
-	expanded: boolean;
-	setExpanded: React.Dispatch<SetStateAction<boolean>>;
+  playingUrl: string;
+  headerConfig: HeaderConfig;
+  TTS: boolean;
+  setTTS: React.Dispatch<SetStateAction<boolean>>;
+  stopAudio: () => void;
+  agentName: string;
+  fullScreenRef: RefObject<HTMLDivElement>;
+  expanded: boolean;
+  setExpanded: React.Dispatch<SetStateAction<boolean>>;
 }) {
-	useEffect(() => {
-		document.addEventListener("fullscreenchange", () => {
-			if (document.fullscreenElement) {
-				setExpanded(true);
-			} else {
-				setExpanded(false);
-			}
-		});
-	}, []);
+  useEffect(() => {
+    document.addEventListener("fullscreenchange", () => {
+      if (document.fullscreenElement) {
+        setExpanded(true);
+      } else {
+        setExpanded(false);
+      }
+    });
+  }, []);
 
-	function openFullscreen(ref: RefObject<HTMLDivElement>) {
-		if (document.fullscreenElement) {
-			document.exitFullscreen();
-			return;
-		}
+  function openFullscreen(ref: RefObject<HTMLDivElement>) {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
 
-		setExpanded(true);
-		const elem = ref?.current as HTMLDivElement;
-		if (!elem) return;
-		if (elem.requestFullscreen) {
-			elem.requestFullscreen();
-		} else if ((elem as any).webkitRequestFullscreen) {
-			(elem as any).webkitRequestFullscreen();
-		} else if ((elem as any).msRequestFullscreen) {
-			(elem as any).msRequestFullscreen();
-		}
-	}
+    setExpanded(true);
+    const elem = ref?.current as HTMLDivElement;
+    if (!elem) return;
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen();
+    } else if ((elem as any).webkitRequestFullscreen) {
+      (elem as any).webkitRequestFullscreen();
+    } else if ((elem as any).msRequestFullscreen) {
+      (elem as any).msRequestFullscreen();
+    }
+  }
 
-	return (
-		<>
-			<Group justify="end" alignSelf="end">
-				{!headerConfig.hideExpandButton && (
-					<IconButton
-						colorPalette={"gray"}
-						bg={{ _hover: "gray.100", base: "gray.200" }}
-						opacity={0.8}
-						color="gray.700"
-						variant="solid"
-						rounded="full"
-						transform="scale(0.65)"
-						onClick={() => {
-							openFullscreen(fullScreenRef);
-						}}
-					>
-						{expanded ? <LuShrink /> : <LuExpand />}
-					</IconButton>
-				)}
-			</Group>
-			<Stack w="100%" py="12" flex="0 0 auto">
-				{headerConfig.showAvatar ? (
-					<Box position="relative" alignSelf="center">
-						<CircularWaveformVisualizer
-							audioUrl={playingUrl}
-							isPlaying={!!playingUrl}
-						/>
-						<Avatar.Root
-							shape="full"
-							w={140}
-							h={140}
-							shadow={"2xl"}
-							position="relative"
-							zIndex={1}
-						>
-							<Avatar.Fallback />
-							<Avatar.Image src={headerConfig?.avatarUrl || avatarUrl} />
+  return (
+    <>
+      <Group justify="end" alignSelf="end">
+        {!headerConfig.hideExpandButton && (
+          <IconButton
+            colorPalette={"gray"}
+            bg={{ _hover: "gray.100", base: "gray.200" }}
+            opacity={0.8}
+            color="gray.700"
+            variant="solid"
+            rounded="full"
+            transform="scale(0.65)"
+            onClick={() => {
+              openFullscreen(fullScreenRef);
+            }}
+          >
+            {expanded ? <LuShrink /> : <LuExpand />}
+          </IconButton>
+        )}
+      </Group>
+      <Stack w="100%" py="12" flex="0 0 auto">
+        {headerConfig.showAvatar ? (
+          <Box position="relative" alignSelf="center">
+            <CircularWaveformVisualizer
+              audioUrl={playingUrl}
+              isPlaying={!!playingUrl}
+            />
+            <Avatar.Root
+              shape="full"
+              w={140}
+              h={140}
+              shadow={"2xl"}
+              position="relative"
+              zIndex={1}
+            >
+              <Avatar.Fallback />
+              <Avatar.Image src={headerConfig?.avatarUrl || avatarUrl} />
 
-							<Float placement="bottom-end" offsetX="4" offsetY="4">
-								<div>
-									<IconButton
-										colorPalette={"gray"}
-										bg={{ _hover: "gray.100", base: "gray.200" }}
-										opacity={0.8}
-										color="gray.700"
-										variant="solid"
-										rounded="full"
-										transform="scale(0.65)"
-										onClick={() => {
-											if (TTS) stopAudio();
-											setTTS((prev) => !prev);
-										}}
-									>
-										{TTS ? <LuVolume2 /> : <LuVolumeOff />}
-									</IconButton>
-								</div>
-							</Float>
-						</Avatar.Root>
-					</Box>
-				) : null}
-				<Box>
-					<Heading
-						textAlign={"center"}
-						size="lg"
-						color={"var(--ts-chat-fg, black)"}
-					>
-						{agentName || "Agent"}
-					</Heading>
-					<Text
-						fontWeight={500}
-						color="gray.600"
-						fontSize="xs"
-						textAlign="center"
-					>
-						powered by{" "}
-						<Text asChild>
-							<a href="https://trueselph.com">TrueSelph</a>
-						</Text>{" "}
-						&copy;
-					</Text>
-				</Box>
-			</Stack>
-		</>
-	);
+              <Float placement="bottom-end" offsetX="4" offsetY="4">
+                <div>
+                  <IconButton
+                    colorPalette={"gray"}
+                    bg={{ _hover: "gray.100", base: "gray.200" }}
+                    opacity={0.8}
+                    color="gray.700"
+                    variant="solid"
+                    rounded="full"
+                    transform="scale(0.65)"
+                    onClick={() => {
+                      if (TTS) stopAudio();
+                      setTTS((prev) => !prev);
+                    }}
+                  >
+                    {TTS ? <LuVolume2 /> : <LuVolumeOff />}
+                  </IconButton>
+                </div>
+              </Float>
+            </Avatar.Root>
+          </Box>
+        ) : null}
+        <Box>
+          <Heading
+            textAlign={"center"}
+            size="lg"
+            color={"var(--ts-chat-fg, black)"}
+          >
+            {agentName || "Agent"}
+          </Heading>
+          <Text
+            fontWeight={500}
+            color="gray.600"
+            fontSize="xs"
+            textAlign="center"
+          >
+            powered by{" "}
+            <Text asChild>
+              <a href="https://trueselph.com">TrueSelph</a>
+            </Text>{" "}
+            &copy;
+          </Text>
+        </Box>
+      </Stack>
+    </>
+  );
 }
 
 export function VoiceChatInput({
-	stopAudio,
-	setDefaultMode,
-	agentId,
-	host,
-	instanceId,
-	sessionId,
-	setTranscribeContent,
-	startRecording,
-	stopRecording,
-	audioData,
-	isRecording,
-	recordingBlob,
+  stopAudio,
+  setDefaultMode,
+  agentId,
+  host,
+  instanceId,
+  sessionId,
+  setTranscribeContent,
+  startRecording,
+  stopRecording,
+  audioData,
+  isRecording,
+  recordingBlob,
 }: {
-	stopAudio: () => void;
-	setTranscribeContent: (content: string) => void;
-	agentId: string;
-	sessionId: string;
-	instanceId: string;
-	host: string;
-	setDefaultMode: React.Dispatch<SetStateAction<"voice-first" | "text-first">>;
-	stopRecording: () => void;
-	startRecording: () => void;
-	recordingBlob: Blob | null;
-	isRecording: boolean;
-	audioData: Uint8Array<ArrayBufferLike> | null;
+  stopAudio: () => void;
+  setTranscribeContent: (content: string) => void;
+  agentId: string;
+  sessionId: string;
+  instanceId: string;
+  host: string;
+  setDefaultMode: React.Dispatch<SetStateAction<"voice-first" | "text-first">>;
+  stopRecording: () => void;
+  startRecording: () => void;
+  recordingBlob: Blob | null;
+  isRecording: boolean;
+  audioData: Uint8Array<ArrayBufferLike> | null;
 }) {
-	const handleToggleRecording = () => {
-		stopAudio();
-		if (isRecording) {
-			stopRecording();
-		} else {
-			startRecording();
-		}
-	};
+  const handleToggleRecording = () => {
+    stopAudio();
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
-	const { transcribe } = useTranscribe({
-		agentId,
-		sessionId,
-		instanceId,
-		host: host as string,
-	});
+  const { transcribe } = useTranscribe({
+    agentId,
+    sessionId,
+    instanceId,
+    host: host as string,
+  });
 
-	useEffect(() => {
-		if (!recordingBlob) return;
+  useEffect(() => {
+    if (!recordingBlob) return;
 
-		transcribe(recordingBlob).then(async (res) => {
-			const result = (await res.json()) as {
-				reports?: Array<{ transcript: string; success: boolean }>;
-				success?: boolean;
-				transcript?: string;
-			};
+    transcribe(recordingBlob).then(async (res) => {
+      const result = (await res.json()) as {
+        reports?: Array<{ transcript: string; success: boolean }>;
+        success?: boolean;
+        transcript?: string;
+      };
 
-			const transcript = result.reports?.[0]?.transcript || result?.transcript;
+      const transcript = result.reports?.[0]?.transcript || result?.transcript;
 
-			if (transcript) {
-				setTranscribeContent(transcript);
-			}
+      if (transcript) {
+        setTranscribeContent(transcript);
+      }
 
-			return result;
-		});
-	}, [recordingBlob]);
+      return result;
+    });
+  }, [recordingBlob]);
 
-	return (
-		<Group alignSelf="center" w="100%" justifyContent="center">
-			<IconButton
-				rounded="full"
-				size="xs"
-				mr="3"
-				onClick={() => {
-					setDefaultMode("text-first");
-				}}
-			>
-				<LuKeyboard />
-			</IconButton>
-			<Box position="relative">
-				<IconAudioVisualizer audioData={audioData} isPlaying={isRecording} />
-				<IconButton
-					variant={isRecording ? "solid" : "subtle"}
-					colorScheme={isRecording ? "red" : "blue"}
-					rounded="3xl"
-					size="2xl"
-					onClick={handleToggleRecording}
-					position="relative"
-					zIndex={2}
-					transition="all 0.2s ease"
-					_hover={{
-						transform: "scale(1.05)",
-					}}
-					_active={{
-						transform: "scale(0.95)",
-					}}
-				>
-					{isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
-				</IconButton>
-			</Box>
-		</Group>
-	);
+  return (
+    <Group alignSelf="center" w="100%" justifyContent="center">
+      <IconButton
+        rounded="full"
+        size="xs"
+        mr="3"
+        onClick={() => {
+          setDefaultMode("text-first");
+        }}
+      >
+        <LuKeyboard />
+      </IconButton>
+      <Box position="relative">
+        <IconAudioVisualizer audioData={audioData} isPlaying={isRecording} />
+        <IconButton
+          variant={isRecording ? "solid" : "subtle"}
+          colorScheme={isRecording ? "red" : "blue"}
+          rounded="3xl"
+          size="2xl"
+          onClick={handleToggleRecording}
+          position="relative"
+          zIndex={2}
+          transition="all 0.2s ease"
+          _hover={{
+            transform: "scale(1.05)",
+          }}
+          _active={{
+            transform: "scale(0.95)",
+          }}
+        >
+          {isRecording ? <AiOutlinePause /> : <HiOutlineMicrophone />}
+        </IconButton>
+      </Box>
+    </Group>
+  );
 }
 
 function MediaMessage({ message }: { message: ResponseMessage }) {
-	if (message.message_type !== "MEDIA") return null;
+  if (message.message_type !== "MEDIA") return null;
 
-	return (
-		<>
-			{message.mime?.startsWith("image/") && (
-				<Image
-					rounded="lg"
-					aria-label="Message header"
-					src={
-						typeof message.data === "string" ? message.data : message.data?.url
-					}
-				/>
-			)}
+  return (
+    <>
+      {message.mime?.startsWith("image/") && (
+        <Image
+          rounded="lg"
+          aria-label="Message header"
+          src={
+            typeof message.data === "string" ? message.data : message.data?.url
+          }
+        />
+      )}
 
-			{message.mime?.startsWith("audio/") && (
-				// biome-ignore lint/a11y/useMediaCaption: <explanation>
-				<audio
-					controls
-					aria-label="Message header"
-					src={
-						typeof message.data === "string" ? message.data : message.data?.url
-					}
-				/>
-			)}
+      {message.mime?.startsWith("audio/") && (
+        // biome-ignore lint/a11y/useMediaCaption: <explanation>
+        <audio
+          controls
+          aria-label="Message header"
+          src={
+            typeof message.data === "string" ? message.data : message.data?.url
+          }
+        />
+      )}
 
-			{message.mime?.startsWith("video/") && (
-				// biome-ignore lint/a11y/useMediaCaption: <explanation>
-				<Box rounded="lg" overflow="hidden">
-					<video
-						controls
-						src={
-							typeof message.data === "string"
-								? message.data
-								: message.data?.url
-						}
-					/>
-				</Box>
-			)}
-		</>
-	);
+      {message.mime?.startsWith("video/") && (
+        // biome-ignore lint/a11y/useMediaCaption: <explanation>
+        <Box rounded="lg" overflow="hidden">
+          <video
+            controls
+            src={
+              typeof message.data === "string"
+                ? message.data
+                : message.data?.url
+            }
+          />
+        </Box>
+      )}
+    </>
+  );
 }
 
 export const Messages = memo(function Messages({
-	interactions,
-	playingUrl,
-	playAudio,
-	stopAudio,
-	TTS,
-	headerConfig,
-	codeTheme,
-	withDebug,
-	maxWidth,
+  interactions,
+  playingUrl,
+  playAudio,
+  stopAudio,
+  TTS,
+  headerConfig,
+  codeTheme,
+  withDebug,
+  maxWidth,
 }: {
-	interactions: Interaction[];
-	playingUrl?: string;
-	playAudio?: (url: string) => void;
-	stopAudio?: () => void;
-	TTS: boolean;
-	headerConfig?: HeaderConfig;
-	codeTheme?: string;
-	withDebug?: boolean;
-	maxWidth?: string;
+  interactions: Interaction[];
+  playingUrl?: string;
+  playAudio?: (url: string) => void;
+  stopAudio?: () => void;
+  TTS: boolean;
+  headerConfig?: HeaderConfig;
+  codeTheme?: string;
+  withDebug?: boolean;
+  maxWidth?: string;
 }) {
-	const messagesWrapperRef = useRef<HTMLDivElement>(null);
-	const [debuggedInteraction, setDebuggedInteraction] =
-		useState<Interaction | null>(null);
+  const messagesWrapperRef = useRef<HTMLDivElement>(null);
+  const [debuggedInteraction, setDebuggedInteraction] =
+    useState<Interaction | null>(null);
 
-	useEffect(() => {
-		if (messagesWrapperRef.current) {
-			messagesWrapperRef.current.scrollTop =
-				messagesWrapperRef.current?.scrollHeight;
-		}
-	}, [messagesWrapperRef.current, interactions]);
+  useEffect(() => {
+    if (messagesWrapperRef.current) {
+      messagesWrapperRef.current.scrollTop =
+        messagesWrapperRef.current?.scrollHeight;
+    }
+  }, [messagesWrapperRef.current, interactions]);
 
-	useEffect(() => {
-		window.dispatchEvent(
-			new CustomEvent("tsminteractionschange", {
-				detail: {
-					interactions,
-				},
-			}),
-		);
-	}, [interactions]);
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("tsminteractionschange", {
+        detail: {
+          interactions,
+        },
+      }),
+    );
+  }, [interactions]);
 
-	return (
-		<ScrollArea.Root>
-			<ScrollArea.Viewport ref={messagesWrapperRef}>
-				<ScrollArea.Content>
-					<Stack
-						id="ts-messages"
-						w="100%"
-						// overflowY="scroll"
-						margin="0 auto"
-						px="4"
-						maxW={maxWidth}
-					>
-						{interactions
-							?.filter((interaction) =>
-								!debuggedInteraction
-									? true
-									: debuggedInteraction.id === interaction.id,
-							)
-							?.map?.((interaction) => (
-								<Fragment key={interaction.id}>
-									<ChatMessage
-										sent
-										headerConfig={headerConfig}
-										interaction={interaction}
-										codeTheme={codeTheme}
-										setDebuggedInteraction={setDebuggedInteraction}
-										withDebug={withDebug}
-									/>
-									<ChatMessage
-										headerConfig={headerConfig}
-										playingUrl={playingUrl}
-										playAudio={playAudio}
-										stopAudio={stopAudio}
-										interaction={interaction}
-										setDebuggedInteraction={setDebuggedInteraction}
-										TTS={TTS}
-										codeTheme={codeTheme}
-										withDebug={withDebug}
-									/>
-								</Fragment>
-							))}
+  return (
+    <ScrollArea.Root>
+      <ScrollArea.Viewport ref={messagesWrapperRef}>
+        <ScrollArea.Content>
+          <Stack
+            id="ts-messages"
+            w="100%"
+            // overflowY="scroll"
+            margin="0 auto"
+            px="4"
+            maxW={maxWidth}
+          >
+            {interactions
+              ?.filter((interaction) =>
+                !debuggedInteraction
+                  ? true
+                  : debuggedInteraction.id === interaction.id,
+              )
+              ?.map?.((interaction) => (
+                <Fragment key={interaction.id}>
+                  <ChatMessage
+                    sent
+                    headerConfig={headerConfig}
+                    interaction={interaction}
+                    codeTheme={codeTheme}
+                    setDebuggedInteraction={setDebuggedInteraction}
+                    withDebug={withDebug}
+                  />
+                  <ChatMessage
+                    headerConfig={headerConfig}
+                    playingUrl={playingUrl}
+                    playAudio={playAudio}
+                    stopAudio={stopAudio}
+                    interaction={interaction}
+                    setDebuggedInteraction={setDebuggedInteraction}
+                    TTS={TTS}
+                    codeTheme={codeTheme}
+                    withDebug={withDebug}
+                  />
+                </Fragment>
+              ))}
 
-						<Presence
-							present={!!debuggedInteraction && withDebug}
-							animationStyle={{
-								_open: "scale-fade-in",
-								_closed: "scale-fade-out",
-							}}
-							animationDuration="moderate"
-						>
-							<Box
-								maxW={"100%"}
-								overflow="auto"
-								borderWidth="1px"
-								borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
-								rounded="lg"
-								px="2"
-							>
-								<Flex justify="end">
-									<CopyIcon
-										value={JSON.stringify(debuggedInteraction, null, 2)}
-									/>
-								</Flex>
-								<ShikiHighlighter
-									showLanguage={false}
-									language="json"
-									theme={codeTheme || "github-light"}
-									style={{ outline: "none" }}
-								>
-									{JSON.stringify(debuggedInteraction, null, 2)}
-								</ShikiHighlighter>
-								<Flex justify="end">
-									<IconButton
-										size="2xs"
-										rounded="3xl"
-										variant="ghost"
-										bg="var(--ts-icon-btn-bg)"
-										color="var(--ts-icon-btn-color)"
-										_hover={{
-											background: "var(--ts-icon-btn-hover-bg)",
-										}}
-										onClick={() => setDebuggedInteraction(null)}
-									>
-										<LuArrowUpFromLine />
-									</IconButton>
-								</Flex>
-							</Box>
-						</Presence>
-					</Stack>
-				</ScrollArea.Content>
-			</ScrollArea.Viewport>
+            <Presence
+              present={!!debuggedInteraction && withDebug}
+              animationStyle={{
+                _open: "scale-fade-in",
+                _closed: "scale-fade-out",
+              }}
+              animationDuration="moderate"
+            >
+              <Box
+                maxW={"100%"}
+                overflow="auto"
+                borderWidth="1px"
+                borderColor={"var(--ts-input-bg, var(--chakra-colors-border))"}
+                rounded="lg"
+                px="2"
+              >
+                <Flex justify="end">
+                  <CopyIcon
+                    value={JSON.stringify(debuggedInteraction, null, 2)}
+                  />
+                </Flex>
+                <ShikiHighlighter
+                  showLanguage={false}
+                  language="json"
+                  theme={codeTheme || "github-light"}
+                  style={{ outline: "none" }}
+                >
+                  {JSON.stringify(debuggedInteraction, null, 2)}
+                </ShikiHighlighter>
+                <Flex justify="end">
+                  <IconButton
+                    size="2xs"
+                    rounded="3xl"
+                    variant="ghost"
+                    bg="var(--ts-icon-btn-bg)"
+                    color="var(--ts-icon-btn-color)"
+                    _hover={{
+                      background: "var(--ts-icon-btn-hover-bg)",
+                    }}
+                    onClick={() => setDebuggedInteraction(null)}
+                  >
+                    <LuArrowUpFromLine />
+                  </IconButton>
+                </Flex>
+              </Box>
+            </Presence>
+          </Stack>
+        </ScrollArea.Content>
+      </ScrollArea.Viewport>
 
-			<ScrollArea.Scrollbar>
-				<ScrollArea.Thumb />
-			</ScrollArea.Scrollbar>
-			<ScrollArea.Corner />
-		</ScrollArea.Root>
-	);
+      <ScrollArea.Scrollbar>
+        <ScrollArea.Thumb />
+      </ScrollArea.Scrollbar>
+      <ScrollArea.Corner />
+    </ScrollArea.Root>
+  );
 });
 
 const CopyIcon = memo(function CopyIcon({ value }: { value: string }) {
-	const { copied, copy } = useClipboard({
-		value,
-	});
+  const { copied, copy } = useClipboard({
+    value,
+  });
 
-	return (
-		<IconButton
-			size="2xs"
-			rounded="3xl"
-			variant="ghost"
-			onClick={copy}
-			bg="var(--ts-icon-btn-bg)"
-			color="var(--ts-icon-btn-color)"
-			_hover={{
-				background: "var(--ts-icon-btn-hover-bg)",
-			}}
-		>
-			{!copied ? <LuClipboard /> : <LuClipboardCheck />}
-		</IconButton>
-	);
+  return (
+    <IconButton
+      size="2xs"
+      rounded="3xl"
+      variant="ghost"
+      onClick={copy}
+      bg="var(--ts-icon-btn-bg)"
+      color="var(--ts-icon-btn-color)"
+      _hover={{
+        background: "var(--ts-icon-btn-hover-bg)",
+      }}
+    >
+      {!copied ? <LuClipboard /> : <LuClipboardCheck />}
+    </IconButton>
+  );
 });
 
 export const ChatMessage = memo(function ChatMessage({
-	sent,
-	interaction,
-	playingUrl,
-	playAudio,
-	stopAudio,
-	withDebug,
-	TTS,
-	headerConfig,
-	codeTheme,
-	setDebuggedInteraction,
+  sent,
+  interaction,
+  playingUrl,
+  playAudio,
+  stopAudio,
+  withDebug,
+  TTS,
+  headerConfig,
+  codeTheme,
+  setDebuggedInteraction,
 }: {
-	sent?: boolean;
-	interaction?: Interaction;
-	playingUrl?: string;
-	playAudio?: (url: string) => void;
-	stopAudio?: () => void;
-	withDebug?: boolean;
-	TTS?: boolean;
-	headerConfig?: HeaderConfig;
-	codeTheme?: string;
-	setDebuggedInteraction: React.Dispatch<
-		React.SetStateAction<Interaction | null>
-	>;
+  sent?: boolean;
+  interaction?: Interaction;
+  playingUrl?: string;
+  playAudio?: (url: string) => void;
+  stopAudio?: () => void;
+  withDebug?: boolean;
+  TTS?: boolean;
+  headerConfig?: HeaderConfig;
+  codeTheme?: string;
+  setDebuggedInteraction: React.Dispatch<
+    React.SetStateAction<Interaction | null>
+  >;
 }) {
-	const messageContent = useMemo(() => {
-		if (!interaction?.response?.message) return "";
-		const message = interaction.response.message;
-		return message.message_type === "TEXT" ? message.content : "";
-	}, [interaction?.response?.message]);
+  const messageContent = useMemo(() => {
+    if (!interaction?.response?.message) return "";
+    const message = interaction.response.message;
+    return message.message_type === "TEXT" ? message.content : "";
+  }, [interaction?.response?.message]);
 
-	const { copied, copy } = useClipboard({ value: messageContent });
+  const { copied, copy } = useClipboard({ value: messageContent });
 
-	const handleCopy = useCallback(() => copy(), [copy]);
+  const handleCopy = useCallback(() => copy(), [copy]);
 
-	const handleAudioToggle = useCallback(() => {
-		if (playingUrl === interaction?.response?.audio_url) {
-			stopAudio?.();
-		} else if (interaction?.response?.audio_url) {
-			playAudio?.(interaction.response.audio_url);
-		}
-	}, [playingUrl, interaction?.response?.audio_url, stopAudio, playAudio]);
+  const handleAudioToggle = useCallback(() => {
+    if (playingUrl === interaction?.response?.audio_url) {
+      stopAudio?.();
+    } else if (interaction?.response?.audio_url) {
+      playAudio?.(interaction.response.audio_url);
+    }
+  }, [playingUrl, interaction?.response?.audio_url, stopAudio, playAudio]);
 
-	const handleDebugToggle = useCallback(() => {
-		setDebuggedInteraction((prev) =>
-			prev?.id === interaction?.id ? null : interaction || null,
-		);
-	}, [setDebuggedInteraction, interaction]);
+  const handleDebugToggle = useCallback(() => {
+    setDebuggedInteraction((prev) =>
+      prev?.id === interaction?.id ? null : interaction || null,
+    );
+  }, [setDebuggedInteraction, interaction]);
 
-	const renderer: Partial<ReactRenderer> = useMemo(
-		() => ({
-			table(content: ComponentChild[]) {
-				return (
-					<Table.Root size="md" maxW="100%" overflowX="auto" my="2">
-						<Table.Header>
-							{(
-								content as unknown as any
-							)[0]?.props?.children?.props?.children?.map(
-								(header: any, index: number) => (
-									<Table.ColumnHeader
-										key={header.key || index}
-										borderColor={
-											"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-										}
-									>
-										{header.props.children}
-									</Table.ColumnHeader>
-								),
-							)}
-						</Table.Header>
-						<Table.Body>
-							{(content as unknown as any)[1]?.props?.children?.map(
-								(row: any, rowIndex: number) => (
-									<Table.Row key={row.key || `row-${rowIndex}`}>
-										{row.props?.children?.map(
-											(cell: any, cellIndex: number) => (
-												<Table.Cell
-													borderColor={
-														"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-													}
-													key={cell.key || `cell-${rowIndex}-${cellIndex}`}
-												>
-													{cell.props.children}
-												</Table.Cell>
-											),
-										)}
-									</Table.Row>
-								),
-							)}
-						</Table.Body>
-					</Table.Root>
-				);
-			},
-			codespan(code: any) {
-				return <Code>{code}</Code>;
-			},
-			code(snippet: ComponentChild, lang: string | undefined) {
-				return (
-					<Card.Root
-						my="4"
-						overflow="hidden"
-						rounded="xl"
-						borderColor={
-							"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-						}
-					>
-						<Card.Header
-							bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-							color={"var(--ts-input-color, inherit)"}
-							borderColor={
-								"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-							}
-							py="1"
-						>
-							<Flex justify="space-between">
-								<Code
-									bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
-									color={"var(--ts-input-color, inherit)"}
-									variant={"plain"}
-								>
-									{lang}
-								</Code>
-								<CopyIcon value={snippet as string} />
-							</Flex>
-						</Card.Header>
-						<Card.Body
-							py="1"
-							bg={"var(--ts-input-bg, var(--chakra-colors-gray-50))"}
-							color={"var(--ts-input-color, inherit)"}
-							borderColor={
-								"var(--ts-chat-bd, var(--global-color-border, currentColor))"
-							}
-						>
-							<ShikiHighlighter
-								showLanguage={false}
-								style={{
-									overflow: "auto",
-									width: "100%",
-									whiteSpace: "pre-wrap",
-									wordBreak: "break-all",
-								}}
-								language={lang || "text"}
-								delay={150}
-								theme={codeTheme || "github-light"}
-							>
-								{snippet as string}
-							</ShikiHighlighter>
-						</Card.Body>
-					</Card.Root>
-				);
-			},
-		}),
-		[codeTheme],
-	);
+  const renderer: Partial<ReactRenderer> = useMemo(
+    () => ({
+      table(content: ComponentChild[]) {
+        return (
+          <Table.Root size="md" maxW="100%" overflowX="auto" my="2">
+            <Table.Header>
+              {(
+                content as unknown as any
+              )[0]?.props?.children?.props?.children?.map(
+                (header: any, index: number) => (
+                  <Table.ColumnHeader
+                    key={header.key || index}
+                    borderColor={
+                      "var(--ts-chat-bd, var(--global-color-border, currentColor))"
+                    }
+                  >
+                    {header.props.children}
+                  </Table.ColumnHeader>
+                ),
+              )}
+            </Table.Header>
+            <Table.Body>
+              {(content as unknown as any)[1]?.props?.children?.map(
+                (row: any, rowIndex: number) => (
+                  <Table.Row key={row.key || `row-${rowIndex}`}>
+                    {row.props?.children?.map(
+                      (cell: any, cellIndex: number) => (
+                        <Table.Cell
+                          borderColor={
+                            "var(--ts-chat-bd, var(--global-color-border, currentColor))"
+                          }
+                          key={cell.key || `cell-${rowIndex}-${cellIndex}`}
+                        >
+                          {cell.props.children}
+                        </Table.Cell>
+                      ),
+                    )}
+                  </Table.Row>
+                ),
+              )}
+            </Table.Body>
+          </Table.Root>
+        );
+      },
+      codespan(code: any) {
+        return <Code>{code}</Code>;
+      },
+      code(snippet: ComponentChild, lang: string | undefined) {
+        return (
+          <Card.Root
+            my="4"
+            overflow="hidden"
+            rounded="xl"
+            borderColor={
+              "var(--ts-chat-bd, var(--global-color-border, currentColor))"
+            }
+          >
+            <Card.Header
+              bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+              color={"var(--ts-input-color, inherit)"}
+              borderColor={
+                "var(--ts-chat-bd, var(--global-color-border, currentColor))"
+              }
+              py="1"
+            >
+              <Flex justify="space-between">
+                <Code
+                  bg={"var(--ts-input-bg, var(--chakra-colors-gray-subtle))"}
+                  color={"var(--ts-input-color, inherit)"}
+                  variant={"plain"}
+                >
+                  {lang}
+                </Code>
+                <CopyIcon value={snippet as string} />
+              </Flex>
+            </Card.Header>
+            <Card.Body
+              py="1"
+              bg={"var(--ts-input-bg, var(--chakra-colors-gray-50))"}
+              color={"var(--ts-input-color, inherit)"}
+              borderColor={
+                "var(--ts-chat-bd, var(--global-color-border, currentColor))"
+              }
+            >
+              <ShikiHighlighter
+                showLanguage={false}
+                style={{
+                  overflow: "auto",
+                  width: "100%",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                }}
+                language={lang || "text"}
+                delay={150}
+                theme={codeTheme || "github-light"}
+              >
+                {snippet as string}
+              </ShikiHighlighter>
+            </Card.Body>
+          </Card.Root>
+        );
+      },
+    }),
+    [codeTheme],
+  );
 
-	const renderMessageContent = useCallback(() => {
-		if (!interaction?.response?.message) return null;
+  const renderMessageContent = useCallback(() => {
+    if (!interaction?.response?.message) return null;
 
-		const message = interaction.response.message;
+    const message = interaction.response.message;
 
-		if (message.message_type === "TEXT") {
-			return (
-				<Markdown
-					gfm={true}
-					breaks={true}
-					value={message.content || ""}
-					renderer={renderer as any}
-				/>
-			);
-		} else if (message.message_type === "MEDIA") {
-			return <MediaMessage message={message} />;
-		} else if (message.message_type === "MULTI") {
-			return (
-				<Stack>
-					{(
-						message.content as Array<TextResponeMessage | MediaResponseMessage>
-					)?.map((item, index) => (
-						<Fragment key={`multi-${index}`}>
-							{item.message_type === "TEXT" && (
-								<Markdown
-									gfm={true}
-									breaks={true}
-									value={item.content || ""}
-									renderer={renderer as Partial<ReactRenderer>}
-								/>
-							)}
-							{item.message_type === "MEDIA" && <MediaMessage message={item} />}
-						</Fragment>
-					))}
-				</Stack>
-			);
-		}
+    if (message.message_type === "TEXT") {
+      return (
+        <Markdown
+          gfm={true}
+          breaks={true}
+          value={message.content || ""}
+          renderer={renderer as any}
+        />
+      );
+    } else if (message.message_type === "MEDIA") {
+      return <MediaMessage message={message} />;
+    } else if (message.message_type === "MULTI") {
+      return (
+        <Stack>
+          {(
+            message.content as Array<TextResponeMessage | MediaResponseMessage>
+          )?.map((item, index) => (
+            <Fragment key={`multi-${index}`}>
+              {item.message_type === "TEXT" && (
+                <Markdown
+                  gfm={true}
+                  breaks={true}
+                  value={item.content || ""}
+                  renderer={renderer as Partial<ReactRenderer>}
+                />
+              )}
+              {item.message_type === "MEDIA" && <MediaMessage message={item} />}
+            </Fragment>
+          ))}
+        </Stack>
+      );
+    }
 
-		return null;
-	}, [interaction?.response?.message, renderer]);
+    return null;
+  }, [interaction?.response?.message, renderer]);
 
-	return (
-		<Flex
-			alignSelf={sent ? "flex-end" : "flex-start"}
-			alignItems={"start"}
-			w="auto"
-			maxW={sent ? "11/12" : undefined}
-			id="message-root"
-		>
-			{!sent && (
-				<Avatar.Root size="xs" bg="transparent">
-					<Avatar.Fallback />
-					<Avatar.Image
-						rounded="full"
-						src={headerConfig?.avatarUrl || avatarUrl}
-					/>
-				</Avatar.Root>
-			)}
+  return (
+    <Flex
+      alignSelf={sent ? "flex-end" : "flex-start"}
+      alignItems={"start"}
+      w="auto"
+      maxW={sent ? "11/12" : undefined}
+      id="message-root"
+    >
+      {!sent && (
+        <Avatar.Root size="xs" bg="transparent">
+          <Avatar.Fallback />
+          <Avatar.Image
+            rounded="full"
+            src={headerConfig?.avatarUrl || avatarUrl}
+          />
+        </Avatar.Root>
+      )}
 
-			<ChatMessageContainer variant={sent ? "sent" : undefined} mt="0">
-				{sent ? (
-					<Markdown
-						value={interaction?.utterance || ""}
-						renderer={renderer as any}
-					/>
-				) : !interaction?.response?.message ? (
-					<>
-						<ReplyIndicator show={true} />
-					</>
-				) : (
-					renderMessageContent()
-				)}
-				{!sent && interaction?.response ? (
-					<Flex mt="xs">
-						<IconButton
-							rounded="3xl"
-							size="2xs"
-							variant="ghost"
-							onClick={handleCopy}
-							bg="var(--ts-icon-btn-bg)"
-							color="var(--ts-icon-btn-color)"
-							_hover={{
-								background: "var(--ts-icon-btn-hover-bg)",
-							}}
-						>
-							{!copied ? <LuClipboard /> : <LuClipboardCheck />}
-						</IconButton>
-						{interaction?.response?.audio_url && TTS ? (
-							<IconButton
-								rounded="3xl"
-								size="2xs"
-								variant="ghost"
-								bg="var(--ts-icon-btn-bg)"
-								color="var(--ts-icon-btn-color)"
-								_hover={{
-									background: "var(--ts-icon-btn-hover-bg)",
-								}}
-								onClick={handleAudioToggle}
-							>
-								{playingUrl === interaction?.response?.audio_url ? (
-									<LuHeadphoneOff />
-								) : (
-									<LuHeadphones />
-								)}
-							</IconButton>
-						) : null}
+      <ChatMessageContainer variant={sent ? "sent" : undefined} mt="0">
+        {sent ? (
+          <Markdown
+            value={interaction?.utterance || ""}
+            renderer={renderer as any}
+          />
+        ) : !interaction?.response?.message ? (
+          <>
+            <ReplyIndicator show={true} />
+          </>
+        ) : (
+          renderMessageContent()
+        )}
+        {!sent && interaction?.response ? (
+          <Flex mt="xs">
+            <IconButton
+              rounded="3xl"
+              size="2xs"
+              variant="ghost"
+              onClick={handleCopy}
+              bg="var(--ts-icon-btn-bg)"
+              color="var(--ts-icon-btn-color)"
+              _hover={{
+                background: "var(--ts-icon-btn-hover-bg)",
+              }}
+            >
+              {!copied ? <LuClipboard /> : <LuClipboardCheck />}
+            </IconButton>
+            {interaction?.response?.audio_url && TTS ? (
+              <IconButton
+                rounded="3xl"
+                size="2xs"
+                variant="ghost"
+                bg="var(--ts-icon-btn-bg)"
+                color="var(--ts-icon-btn-color)"
+                _hover={{
+                  background: "var(--ts-icon-btn-hover-bg)",
+                }}
+                onClick={handleAudioToggle}
+              >
+                {playingUrl === interaction?.response?.audio_url ? (
+                  <LuHeadphoneOff />
+                ) : (
+                  <LuHeadphones />
+                )}
+              </IconButton>
+            ) : null}
 
-						{withDebug && (
-							<IconButton
-								rounded="3xl"
-								size="2xs"
-								variant="ghost"
-								bg="var(--ts-icon-btn-bg)"
-								color="var(--ts-icon-btn-color)"
-								_hover={{
-									background: "var(--ts-icon-btn-hover-bg)",
-								}}
-								onClick={handleDebugToggle}
-							>
-								<LuInfo />
-							</IconButton>
-						)}
-					</Flex>
-				) : null}
-			</ChatMessageContainer>
-		</Flex>
-	);
+            {withDebug && (
+              <IconButton
+                rounded="3xl"
+                size="2xs"
+                variant="ghost"
+                bg="var(--ts-icon-btn-bg)"
+                color="var(--ts-icon-btn-color)"
+                _hover={{
+                  background: "var(--ts-icon-btn-hover-bg)",
+                }}
+                onClick={handleDebugToggle}
+              >
+                <LuInfo />
+              </IconButton>
+            )}
+          </Flex>
+        ) : null}
+      </ChatMessageContainer>
+    </Flex>
+  );
 });
 
 const ChatMessageContainer = chakra("div", {
-	base: {
-		p: "2",
-		bg: "var(--ts-response-msg-bg, transparent)",
-		display: "inline-block",
-		color: "var(--ts-response-msg-color, black)",
-		"& a": {
-			fontWeight: 500,
-			fontStyle: "italic",
-		},
-	},
-	variants: {
-		variant: {
-			sent: {
-				px: "4",
-				justifySelf: "flex-end",
-				rounded: "2xl",
-				background: "blue.50",
-				color: "gray.900",
-			},
-		},
-	},
+  base: {
+    p: "2",
+    bg: "var(--ts-response-msg-bg, transparent)",
+    display: "inline-block",
+    color: "var(--ts-response-msg-color, black)",
+    "& a": {
+      fontWeight: 500,
+      fontStyle: "italic",
+    },
+  },
+  variants: {
+    variant: {
+      sent: {
+        px: "4",
+        justifySelf: "flex-end",
+        rounded: "2xl",
+        background: "blue.50",
+        color: "gray.900",
+      },
+    },
+  },
 });

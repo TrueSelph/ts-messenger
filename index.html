@@ -1,27 +1,28 @@
 <!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<link rel="icon" type="image/svg+xml" href="/vite.svg" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Vite + Preact + TS</title>
-	</head>
-	<body>
-		<div style="width: 60%; margin: 0 auto">
-			<ts-messenger
-				host="https://iris-ai-jivas.trueselph.com"
-				agent-id="n:Agent:689e0018718e08e7c686fd64"
-				header-config='{"showAvatar":true, "show": true}'
-				agent-name="IRIS AI"
-				theme="{}"
-				streaming="true"
-				layout="standard"
-				with-debug="true"
-				use-local-storage-cache="true"
-				session-id-storage="localstorage"
-			></ts-messenger>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + Preact + TS</title>
+  </head>
+  <body>
+    <div style="width: 60%; margin: 0 auto">
+      <ts-messenger
+        host="https://glv7ezuiqoelkfwfmbuf3kob3y0qeleo.lambda-url.us-east-2.on.aws"
+        agent-id="n.Agent.51341ce32ae84475acafedd9"
+        header-config='{"showAvatar":true, "show": true}'
+        enabled-file-button="true"
+        agent-name="Silvie AI"
+        theme="{}"
+        streaming="false"
+        layout="standard"
+        with-debug="true"
+        use-local-storage-cache="true"
+        session-id-storage="localstorage"
+      ></ts-messenger>
 
-			<!-- <ts-messenger-popup
+      <!-- <ts-messenger-popup
 				host="https://iris-ai-jivas.trueselph.com"
 				agent-id="n:Agent:6807091d84f0f993f38ee1db"
 				session-id="209c76ae-820e-41c8-8d98-8e71e93a7c30"
@@ -29,14 +30,14 @@
 				agent-name="IRIS AI"
 				theme="{}"
 			></ts-messenger-popup> -->
-		</div>
-		<!-- <div id="app"></div> -->
-		<script type="module" src="/src/main.tsx"></script>
-	</body>
-	<style>
-		body {
-			margin: 0;
-			background: white;
-		}
-	</style>
+    </div>
+    <!-- <div id="app"></div> -->
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+  <style>
+    body {
+      margin: 0;
+      background: white;
+    }
+  </style>
 </html>
