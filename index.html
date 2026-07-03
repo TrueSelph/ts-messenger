@@ -9,11 +9,12 @@
   <body>
     <div style="width: 60%; margin: 0 auto">
       <ts-messenger
-        host="https://glv7ezuiqoelkfwfmbuf3kob3y0qeleo.lambda-url.us-east-2.on.aws"
-        agent-id="n.Agent.51341ce32ae84475acafedd9"
+        host="http://localhost:8000"
+        agent-id="n.Agent.7a8140c04a9f4e1e86cf85c3"
         header-config='{"showAvatar":true, "show": true}'
         enabled-file-button="true"
-        agent-name="Silvie AI"
+        agent-name="Local AI"
+        polling-interval="3000"
         theme="{}"
         streaming="true"
         layout="standard"
@@ -21,6 +22,33 @@
         use-local-storage-cache="true"
         session-id-storage="localstorage"
       ></ts-messenger>
+      <!-- Polling variant: set polling-interval in ms (e.g. 3000 = 3 seconds) to
+           POST /api/agents/{agent_id}/client-push/subscribe (stream=false)
+           instead of the SSE stream. The interval controls how often the
+           client polls for new messages. -->
+      <!--<ts-messenger
+        host="http://localhost:8000"
+        agent-id="n.Agent.7a8140c04a9f4e1e86cf85c3"
+        header-config='{"showAvatar":true, "show": true}'
+        agent-name="Local AI (Polling)"
+        streaming="true"
+        polling-interval="3000"
+        layout="standard"
+        with-debug="true"
+      ></ts-messenger>-->
+      <!--<ts-messenger
+        host="https://zdxpmyeww522n2pnc3j7mkzdk40shlwu.lambda-url.us-east-2.on.aws"
+        agent-id="n.Agent.6571f67927c64a74a23d9760"
+        header-config='{"showAvatar":true, "show": true}'
+        enabled-file-button="true"
+        agent-name="TRIS AI"
+        theme="{}"
+        streaming="true"
+        layout="standard"
+        with-debug="true"
+        use-local-storage-cache="true"
+        session-id-storage="localstorage"
+      ></ts-messenger>-->
 
       <!-- <ts-messenger-popup
 				host="https://iris-ai-jivas.trueselph.com"

@@ -59,6 +59,8 @@ import {
   type MediaResponseMessage,
   type ResponseMessage,
   type TextResponeMessage,
+  type PollMessage,
+  type PollResponse,
 } from "./types";
 
 // TanStack Query imports
@@ -100,6 +102,18 @@ const createQueryClient = () =>
 
 // Create the IndexedDB persister
 const persister = createIDBPersister("trueselph-chat");
+const DEBUG_PAYLOAD_KEY = "__debugPayload";
+
+const withDebugPayload = (
+  data: Record<string, any> | undefined,
+  payload: unknown,
+): Record<string, any> => ({
+  ...(data || {}),
+  [DEBUG_PAYLOAD_KEY]: payload,
+});
+
+const getDebugPayload = (interaction: Interaction | null) =>
+  interaction?.data?.[DEBUG_PAYLOAD_KEY] ?? interaction;
 
 export type HeaderConfig = {
   showAvatar?: boolean;
@@ -112,6 +126,7 @@ export type AppProps = {
   agentId: string;
   host?: string;
   sessionId?: string;
+  sessionToken?: string;
   userId?: string;
   instanceId?: string;
   headerConfig?: HeaderConfig | string;
@@ -126,6 +141,7 @@ export type AppProps = {
   sessionIdStorage?: "localstorage" | "cookie" | "sessionstorage";
   enabledFileButton?: boolean | string;
   channel?: string;
+  pollingInterval?: number;
 };
 
 export function App(props: AppProps) {
@@ -153,6 +169,11 @@ export function App(props: AppProps) {
           typeof (props.streaming as string | boolean) == "string"
             ? (props.streaming as unknown as string) === "true"
             : props.streaming
+        }
+        pollingInterval={
+          props.pollingInterval != null
+            ? Number(props.pollingInterval)
+            : undefined
         }
       />
     </PersistQueryClientProvider>
@@ -196,6 +217,48 @@ function getSessionId(
   }
 }
 
+function getSessionToken(
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
+) {
+  try {
+    switch (mode) {
+      case "sessionstorage":
+        return sessionStorage.getItem("tsSessionToken");
+      case "cookie":
+        return getCookie("tsSessionToken");
+      case "localstorage":
+        return getLocalStorage(`tsSessionToken-${agentId}`);
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+function getStoredUserId(
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
+) {
+  try {
+    switch (mode) {
+      case "sessionstorage":
+        return sessionStorage.getItem("tsUserId");
+      case "cookie":
+        return getCookie("tsUserId");
+      case "localstorage":
+        return getLocalStorage(`tsUserId-${agentId}`);
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
 function saveSessionId(
   id: string,
   mode: "sessionstorage" | "cookie" | "localstorage",
@@ -214,6 +277,59 @@ function saveSessionId(
     default:
       break;
   }
+}
+
+function saveSessionToken(
+  token: string,
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
+) {
+  switch (mode) {
+    case "sessionstorage":
+      sessionStorage.setItem("tsSessionToken", token);
+      break;
+    case "cookie":
+      document.cookie = `tsSessionToken=${token}; path=/`;
+      break;
+    case "localstorage":
+      localStorage.setItem(`tsSessionToken-${agentId}`, token);
+      break;
+    default:
+      break;
+  }
+}
+
+function saveUserId(
+  id: string,
+  mode: "sessionstorage" | "cookie" | "localstorage",
+  agentId: string,
+) {
+  switch (mode) {
+    case "sessionstorage":
+      sessionStorage.setItem("tsUserId", id);
+      break;
+    case "cookie":
+      document.cookie = `tsUserId=${id}; path=/`;
+      break;
+    case "localstorage":
+      localStorage.setItem(`tsUserId-${agentId}`, id);
+      break;
+    default:
+      break;
+  }
+}
+
+function buildHeaders(sessionToken?: string): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...(sessionToken ? { "x-session-token": sessionToken } : {}),
+  };
+}
+
+function getPayloadUserId(payload: any): string | undefined {
+  const userId = payload?.user_id || payload?.message?.user_id;
+
+  return typeof userId === "string" && userId ? userId : undefined;
 }
 
 export function AppContainer(props: AppProps) {
@@ -275,7 +391,9 @@ function ChatContainer({
   sessionIdStorage,
   enabledFileButton: enableFileButtonConfig,
   userId,
+  sessionToken,
   channel,
+  pollingInterval,
 }: AppProps & {
   themeParsed: Record<string, string>;
   headerConfigParsed: HeaderConfig;
@@ -406,6 +524,107 @@ function ChatContainer({
     };
   }, [queryClient, sessionId]);
 
+  // --- Polling for client-stream messages ---
+  // Polls POST /api/agents/{agent_id}/client-push/subscribe with
+  // stream=false at the configured interval to receive messages.
+  const hostURL = host || "https://app.trueselph.com";
+
+  useEffect(() => {
+    if (!pollingInterval || !sessionId) return;
+
+    const pollUrl = `${hostURL}/api/agents/${agentId}/client-push/subscribe`;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(pollUrl, {
+          method: "POST",
+          headers: buildHeaders(sessionToken),
+          body: JSON.stringify({
+            session_id: sessionId,
+            stream: false,
+          }),
+        });
+        const data: PollResponse = await res.json();
+
+        if (!data.ok || !data.messages?.length) return;
+
+        // Deduplicate by both the message's own id and its interaction_id.
+        // SSE interactions use segment-suffixed ids (e.g. "n.Interaction.X-0"),
+        // so we also check whether any cached id starts with the interaction_id.
+        const currentInteractions =
+          queryClient.getQueryData<Interaction[]>([
+            "interactions",
+            agentId,
+            sessionId,
+          ]) || [];
+
+        const existingIds = new Set(currentInteractions.map((i) => i.id));
+        const hasInteractionId = (interactionId: string) =>
+          existingIds.has(interactionId) ||
+          currentInteractions.some((i) => i.id.startsWith(interactionId));
+
+        const newInteractions: Interaction[] = data.messages
+          .filter(
+            (msg: PollMessage) =>
+              !existingIds.has(msg.id) &&
+              (!msg.interaction_id ||
+                !hasInteractionId(msg.interaction_id)),
+          )
+          .map((msg: PollMessage) => {
+            return {
+              id: msg.id,
+              agent_id: agentId,
+              channel: msg.channel || "web",
+              // Poll messages are always received content, not user utterances.
+              utterance: "",
+              tokens: 0,
+              time_stamp: msg.timestamp,
+              trail: [],
+              intents: [],
+              functions: {},
+              directives: [],
+              context_data: { new_user: false, ModelActionResult: [] },
+              events: [],
+              response: {
+                session_id: msg.session_id || sessionId,
+                // Normalize to "TEXT" so the UI renderer handles it properly.
+                // The backend may send "adhoc" or other types that the
+                // ChatMessage component does not recognize.
+                message_type: "TEXT",
+                message: {
+                  message_type: "TEXT" as const,
+                  content: msg.content,
+                  meta: msg.metadata || {},
+                } as TextResponeMessage,
+                tokens: 0,
+              },
+              data: withDebugPayload({}, msg),
+              closed: true,
+            };
+          });
+
+        if (newInteractions.length > 0) {
+          queryClient.setQueryData(
+            ["interactions", agentId, sessionId],
+            (old: Interaction[] = []) => [...old, ...newInteractions],
+          );
+        }
+      } catch (err) {
+        console.warn("Client-stream poll failed:", err);
+      }
+    };
+
+    const interval = setInterval(poll, pollingInterval);
+    return () => clearInterval(interval);
+  }, [
+    pollingInterval,
+    sessionId,
+    agentId,
+    hostURL,
+    sessionToken,
+    queryClient,
+  ]);
+
   // Show loading state while restoring
   if (isRestoring) {
     return (
@@ -495,11 +714,12 @@ function ChatContainer({
           />
         ) : null}
         <Box
-          mt={interactions?.length ? "8" : "0"}
+          // mt={interactions?.length ? "8" : "0"}
           w="100%"
           flex="0 0 auto"
           maxW={themeParsed["--ts-messages-max-width"] || undefined}
           mx="auto"
+          mt={0}
         >
           <ChatInput
             defaultMode="text-first"
@@ -507,6 +727,7 @@ function ChatContainer({
             host={host}
             streaming={!!streaming}
             sessionId={sessionId || ""}
+            sessionToken={sessionToken}
             sessionIdStorage={sessionIdStorage}
             instanceId={instanceId}
             agentId={agentId}
@@ -526,6 +747,7 @@ function ChatContainer({
 // Update ChatInput component to use TanStack Query mutations
 export function ChatInput({
   sessionId,
+  sessionToken,
   agentId,
   streaming,
   playAudio,
@@ -542,6 +764,7 @@ export function ChatInput({
 }: {
   defaultMode: "text-first" | "voice-first";
   sessionId: string;
+  sessionToken?: string;
   agentId: string;
   streaming: boolean;
   playAudio: (audioUrl: string) => void;
@@ -554,6 +777,7 @@ export function ChatInput({
   channel?: string;
   sessionIdStorage: AppProps["sessionIdStorage"];
   enabledFileButton: boolean;
+  isLoading?: boolean;
 }) {
   const [mode, setDefaultMode] = useState(defaultMode);
   const hostURL = host || "https://app.trueselph.com";
@@ -579,34 +803,44 @@ export function ChatInput({
     sessionId: string;
     content: string;
   }) => {
+    const storageMode = sessionIdStorage || defaultStorageMode;
     const sessionId =
-      variables.sessionId ||
-      getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-      undefined;
-    const fullResult = await fetch(`${hostURL}/api/agents/${agentId}/interact`, {
-      method: "POST",
-      body: JSON.stringify({
-        utterance: variables.content,
-        session_id: sessionId,
-        user_id: userId,
-        channel: channel || "web",
-        stream: false,
-        data: instanceId ? { instance_id: instanceId } : undefined,
-      }),
-      headers: {
-        "Content-Type": "application/json",
+      variables.sessionId || getSessionId(storageMode, agentId) || undefined;
+    const activeSessionToken =
+      sessionToken || getSessionToken(storageMode, agentId) || undefined;
+    const activeUserId =
+      userId || getStoredUserId(storageMode, agentId) || undefined;
+    const fullResult = await fetch(
+      `${hostURL}/api/agents/${agentId}/interact`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          utterance: variables.content,
+          session_id: sessionId,
+          user_id: activeUserId,
+          channel: channel || "web",
+          stream: false,
+          data: instanceId ? { instance_id: instanceId } : undefined,
+        }),
+        headers: buildHeaders(activeSessionToken),
       },
-    })
-      .then((res) => {
-        return res.json();
-      });
+    ).then((res) => {
+      return res.json();
+    });
 
     if (!sessionId || fullResult.session_id !== sessionId) {
-      saveSessionId(
-        fullResult.session_id,
-        sessionIdStorage || defaultStorageMode,
-        agentId,
-      );
+      if (fullResult.session_id) {
+        saveSessionId(fullResult.session_id, storageMode, agentId);
+      }
+    }
+
+    if (fullResult.session_token) {
+      saveSessionToken(fullResult.session_token, storageMode, agentId);
+    }
+
+    const returnedUserId = getPayloadUserId(fullResult);
+    if (returnedUserId) {
+      saveUserId(returnedUserId, storageMode, agentId);
     }
 
     const transformedInteraction: Interaction = {
@@ -624,6 +858,7 @@ export function ChatInput({
       events: [],
       response: {
         session_id: fullResult.session_id || "",
+        session_token: fullResult.session_token,
         message_type: "TEXT",
         message: {
           message_type: "TEXT",
@@ -632,7 +867,7 @@ export function ChatInput({
         },
         tokens: 0,
       },
-      data: {},
+      data: withDebugPayload({}, fullResult),
       closed: true,
     };
 
@@ -669,13 +904,17 @@ export function ChatInput({
     utterance,
     content,
     currentSessionId,
+    currentSessionToken,
     isFinal,
+    debugPayload,
   }: {
     id: string;
     utterance: string;
     content: string;
     currentSessionId: string;
+    currentSessionToken?: string;
     isFinal: boolean;
+    debugPayload?: unknown;
   }): Interaction => ({
     id,
     agent_id: agentId,
@@ -691,6 +930,7 @@ export function ChatInput({
     events: [],
     response: {
       session_id: currentSessionId,
+      session_token: currentSessionToken,
       message_type: "TEXT",
       message: {
         message_type: "TEXT",
@@ -699,7 +939,7 @@ export function ChatInput({
       },
       tokens: 0,
     },
-    data: {},
+    data: withDebugPayload({}, debugPayload),
     closed: isFinal,
   });
 
@@ -707,28 +947,26 @@ export function ChatInput({
     sessionId: string;
     content: string;
   }) => {
+    const storageMode = sessionIdStorage || defaultStorageMode;
     const sessionId =
-      variables.sessionId ||
-      getSessionId(sessionIdStorage || defaultStorageMode, agentId) ||
-      undefined;
+      variables.sessionId || getSessionId(storageMode, agentId) || undefined;
+    const activeSessionToken =
+      sessionToken || getSessionToken(storageMode, agentId) || undefined;
+    const activeUserId =
+      userId || getStoredUserId(storageMode, agentId) || undefined;
 
-    const response = await fetch(
-      `${hostURL}/api/agents/${agentId}/interact`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          utterance: variables.content,
-          session_id: sessionId,
-          user_id: userId,
-          channel: channel || "web",
-          stream: true,
-          data: instanceId ? { instance_id: instanceId } : undefined,
-        }),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      },
-    );
+    const response = await fetch(`${hostURL}/api/agents/${agentId}/interact`, {
+      method: "POST",
+      body: JSON.stringify({
+        utterance: variables.content,
+        session_id: sessionId,
+        user_id: activeUserId,
+        channel: channel || "web",
+        stream: true,
+        data: instanceId ? { instance_id: instanceId } : undefined,
+      }),
+      headers: buildHeaders(activeSessionToken),
+    });
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
@@ -739,6 +977,8 @@ export function ChatInput({
 
     let interactionId = "";
     let currentSessionId = sessionId;
+    let currentSessionToken = activeSessionToken;
+    let currentUserId = activeUserId;
     let segmentIndex = 0;
     let segmentContent = "";
     let lineBuffer = "";
@@ -746,6 +986,7 @@ export function ChatInput({
     let lastVisibleInteraction: Interaction | null = null;
     let pendingUtterance = variables.content;
     let currentSegmentUtterance = "";
+    const streamEvents: any[] = [];
 
     const getBaseInteractionId = () => interactionId || STREAM_PLACEHOLDER_ID;
 
@@ -763,7 +1004,12 @@ export function ChatInput({
         utterance: currentSegmentUtterance,
         content,
         currentSessionId: currentSessionId || "",
+        currentSessionToken,
         isFinal,
+        debugPayload: {
+          transport: "sse",
+          events: [...streamEvents],
+        },
       });
 
       updateInteraction({
@@ -792,6 +1038,7 @@ export function ChatInput({
       if (hasVisibleContent) {
         publishSegment(normalizedContent, true);
       }
+      // Note: Don't publish anything if no content - let onSuccess handle it
 
       if (advanceSegment) {
         segmentIndex += 1;
@@ -807,18 +1054,31 @@ export function ChatInput({
         interactionId = event.interaction_id || "";
         if (event.session_id) {
           currentSessionId = event.session_id;
-          saveSessionId(
-            event.session_id,
-            sessionIdStorage || defaultStorageMode,
-            agentId,
-          );
+          saveSessionId(event.session_id, storageMode, agentId);
+        }
+        if (event.session_token) {
+          currentSessionToken = event.session_token;
+          saveSessionToken(event.session_token, storageMode, agentId);
+        }
+        const eventUserId = getPayloadUserId(event);
+        if (eventUserId) {
+          currentUserId = eventUserId;
+          saveUserId(eventUserId, storageMode, agentId);
         }
       }
 
       if (event.type === "message" && event.message) {
+        const eventUserId = getPayloadUserId(event);
+        if (eventUserId) {
+          currentUserId = eventUserId;
+          saveUserId(eventUserId, storageMode, agentId);
+        }
+
         segmentContent += getTextContent(event.message.content);
 
-        if (String(event.message.message_type || "").toLowerCase() === "final") {
+        if (
+          String(event.message.message_type || "").toLowerCase() === "final"
+        ) {
           finalizeCurrentSegment({ advanceSegment: true });
           return null;
         }
@@ -831,6 +1091,29 @@ export function ChatInput({
       if (event.type === "final") {
         if (event.session_id) {
           currentSessionId = event.session_id;
+          saveSessionId(event.session_id, storageMode, agentId);
+        }
+
+        if (event.session_token) {
+          currentSessionToken = event.session_token;
+          saveSessionToken(event.session_token, storageMode, agentId);
+        }
+
+        const eventUserId = getPayloadUserId(event);
+        if (eventUserId) {
+          currentUserId = eventUserId;
+          saveUserId(eventUserId, storageMode, agentId);
+        }
+
+        if (lastVisibleInteraction) {
+          lastVisibleInteraction = {
+            ...lastVisibleInteraction,
+            data: withDebugPayload(lastVisibleInteraction.data, {
+              transport: "sse",
+              events: [...streamEvents],
+              user_id: currentUserId,
+            }),
+          };
         }
 
         const finalResponse = getTextContent(event.response);
@@ -850,6 +1133,20 @@ export function ChatInput({
       return null;
     };
 
+    const parseStreamLine = (line: string) => {
+      const trimmedLine = line.trim();
+
+      if (!trimmedLine) return null;
+      if (trimmedLine.startsWith("data: ")) {
+        return JSON.parse(trimmedLine.slice(6));
+      }
+      if (trimmedLine.startsWith("{")) {
+        return JSON.parse(trimmedLine);
+      }
+
+      return null;
+    };
+
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -860,23 +1157,28 @@ export function ChatInput({
         lineBuffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const event = JSON.parse(line.slice(6));
+          try {
+            const event = parseStreamLine(line);
+
+            if (event) {
+              streamEvents.push(event);
               const finalInteraction = handleStreamEvent(event);
               if (finalInteraction !== null || event.type === "final") {
                 return finalInteraction;
               }
-            } catch (e) {
-              console.warn("Failed to parse SSE event:", e);
             }
+          } catch (e) {
+            console.warn("Failed to parse stream event:", e);
           }
         }
       }
 
-      if (lineBuffer.trim().startsWith("data: ")) {
+      if (lineBuffer.trim()) {
         try {
-          const event = JSON.parse(lineBuffer.trim().slice(6));
+          const event = parseStreamLine(lineBuffer);
+          if (!event) return lastVisibleInteraction;
+
+          streamEvents.push(event);
           const finalInteraction = handleStreamEvent(event);
           if (finalInteraction !== null || event.type === "final") {
             return finalInteraction;
@@ -900,19 +1202,73 @@ export function ChatInput({
         console.log("Non-streaming mutation success:", data);
         const [interaction] = data;
 
-        // Update the cache with the actual response
+        const responseMessage = interaction?.response?.message;
+        let hasValidResponse = false;
+
+        if (responseMessage?.message_type === "TEXT") {
+          const textContent = responseMessage.content;
+          hasValidResponse = !!textContent && textContent.trim().length > 0;
+        } else if (responseMessage?.message_type === "MEDIA") {
+          hasValidResponse =
+            !!responseMessage.content || !!responseMessage.data;
+        } else if (responseMessage?.message_type === "MULTI") {
+          hasValidResponse = responseMessage.content?.some(
+            (item) =>
+              (item.message_type === "TEXT" && item.content?.trim()) ||
+              (item.message_type === "MEDIA" && (item.content || item.data)),
+          );
+        }
+
         queryClient.setQueryData(
           ["interactions", agentId, sessionId],
           (old: Interaction[] = []) => {
-            // Remove the optimistic update (id: "new") and add the actual interaction
-            const filtered = old.filter((i) => i.id !== "new");
-            return [...filtered, interaction];
+            // Only remove placeholder - keep everything else
+            const filtered = old.filter((i) => {
+              if (i.id === "new") return false;
+              return true;
+            });
+
+            if (hasValidResponse) {
+              return [...filtered, interaction];
+            }
+
+            // Keep user's message even if response is null/empty
+            const userMessageInteraction: Interaction = {
+              id: `user_${Date.now()}`,
+              agent_id: agentId,
+              channel: channel || "web",
+              utterance: interaction.utterance,
+              tokens: 0,
+              time_stamp: new Date().toISOString(),
+              trail: [],
+              intents: [],
+              functions: {},
+              directives: [],
+              context_data: { new_user: false, ModelActionResult: [] },
+              events: [],
+              response: {
+                session_id: interaction.response.session_id,
+                message_type: "TEXT",
+                message: {
+                  message_type: "TEXT",
+                  content: "",
+                  meta: {},
+                },
+                tokens: 0,
+              },
+              data: {},
+              closed: true,
+            };
+
+            return [...filtered, userMessageInteraction];
           },
         );
 
-        if (interaction?.response?.audio_url && TTS) {
+        if (hasValidResponse && interaction?.response?.audio_url && TTS) {
           playAudio(interaction.response.audio_url);
         }
+
+        // Always clear input, even if response is null/empty
         setContent("");
         setTranscribeContent("");
       },
@@ -931,11 +1287,32 @@ export function ChatInput({
         queryClient.setQueryData(
           ["interactions", agentId, sessionId],
           (old: Interaction[] = []) => [
-            ...old.filter((i) => !!i.id && !!i.response?.message),
+            ...old,
             {
               id: "new",
+              agent_id: agentId,
+              channel: channel || "web",
               utterance: transcribeContent || variables.content,
-              timestamp: new Date().toISOString(),
+              tokens: 0,
+              time_stamp: new Date().toISOString(),
+              trail: [],
+              intents: [],
+              functions: {},
+              directives: [],
+              context_data: { new_user: false, ModelActionResult: [] },
+              events: [],
+              response: {
+                session_id: "",
+                message_type: "TEXT",
+                message: {
+                  message_type: "TEXT",
+                  content: "",
+                  meta: {},
+                },
+                tokens: 0,
+              },
+              data: {},
+              closed: false,
             },
           ],
         );
@@ -959,13 +1336,87 @@ export function ChatInput({
 
   const { mutate: triggerWithStreaming, isPending: isStreaming } = useMutation({
     mutationFn: interactWithStreaming,
-    onSuccess: () => {
+    onSuccess: (interaction) => {
       console.log("Streaming mutation success");
+
+      const responseMessage = interaction?.response?.message;
+      let hasValidResponse = false;
+
+      if (responseMessage?.message_type === "TEXT") {
+        const textContent = responseMessage.content;
+        hasValidResponse = !!textContent && textContent.trim().length > 0;
+      } else if (responseMessage?.message_type === "MEDIA") {
+        hasValidResponse = !!responseMessage.content || !!responseMessage.data;
+      } else if (responseMessage?.message_type === "MULTI") {
+        hasValidResponse = responseMessage.content?.some(
+          (item) =>
+            (item.message_type === "TEXT" && item.content?.trim()) ||
+            (item.message_type === "MEDIA" && (item.content || item.data)),
+        );
+      }
+
       queryClient.setQueryData(
         ["interactions", agentId, sessionId],
-        (old: Interaction[] = []) =>
-          old.filter((interaction) => interaction.id !== STREAM_PLACEHOLDER_ID),
+        (old: Interaction[] = []) => {
+          // Find the user's original message from onMutate
+          const userMsg = old.find((i) => i.id === STREAM_PLACEHOLDER_ID);
+          const userUtterance =
+            userMsg?.utterance || interaction?.utterance || "";
+
+          // Filter out only stream placeholders and segments - keep everything else including empty responses
+          const filtered = old.filter((i) => {
+            // Remove placeholder
+            if (i.id === STREAM_PLACEHOLDER_ID) return false;
+            // Remove stream segments (IDs starting with "stream-")
+            if (i.id?.startsWith("stream-")) return false;
+            return true;
+          });
+
+          if (hasValidResponse && interaction) {
+            // Replace if exists, otherwise add
+            const existingIndex = filtered.findIndex(
+              (i) => i.id === interaction.id,
+            );
+            if (existingIndex >= 0) {
+              const updated = [...filtered];
+              updated[existingIndex] = interaction;
+              return updated;
+            }
+            return [...filtered, interaction];
+          }
+
+          // Keep user's message even if response is null/empty
+          const userMessageInteraction: Interaction = {
+            id: `user_${Date.now()}`,
+            agent_id: agentId,
+            channel: channel || "web",
+            utterance: userUtterance,
+            tokens: 0,
+            time_stamp: new Date().toISOString(),
+            trail: [],
+            intents: [],
+            functions: {},
+            directives: [],
+            context_data: { new_user: false, ModelActionResult: [] },
+            events: [],
+            response: {
+              session_id: interaction?.response?.session_id || "",
+              message_type: "TEXT",
+              message: {
+                message_type: "TEXT",
+                content: "",
+                meta: {},
+              },
+              tokens: 0,
+            },
+            data: {},
+            closed: true,
+          };
+
+          return [...filtered, userMessageInteraction];
+        },
       );
+
       setContent("");
       setTranscribeContent("");
     },
@@ -986,8 +1437,29 @@ export function ChatInput({
           ...old,
           {
             id: STREAM_PLACEHOLDER_ID,
+            agent_id: agentId,
+            channel: channel || "web",
             utterance: variables.content,
-            timestamp: new Date().toISOString(),
+            tokens: 0,
+            time_stamp: new Date().toISOString(),
+            trail: [],
+            intents: [],
+            functions: {},
+            directives: [],
+            context_data: { new_user: false, ModelActionResult: [] },
+            events: [],
+            response: {
+              session_id: "",
+              message_type: "TEXT",
+              message: {
+                message_type: "TEXT",
+                content: "",
+                meta: {},
+              },
+              tokens: 0,
+            },
+            data: {},
+            closed: false,
           },
         ],
       );
@@ -1022,20 +1494,37 @@ export function ChatInput({
       queryClient.setQueryData(
         ["interactions", agentId, sessionId],
         (old: Interaction[] = []) => {
-          const filtered = old.filter(
-            (i) =>
-              i?.id !== STREAM_PLACEHOLDER_ID &&
-              i?.id !== interaction?.id &&
-              (i?.response?.message
-                ? hasRenderableMessageContent(i.response.message)
-                : true),
+          // Remove stream placeholders and any poll messages whose
+          // interaction_id matches the incoming SSE interaction.
+          const filtered = old.filter((i) => {
+            if (i?.id === STREAM_PLACEHOLDER_ID) return false;
+
+            // Poll-derived interactions have ids like "o.ResponseMessage.XXX".
+            // If the incoming SSE interaction's id starts with the same
+            // base interaction_id, the poll message is a duplicate.
+            if (i.id?.startsWith("o.ResponseMessage.")) {
+              const pollInteractionId =
+                (i.data as any)?.__debugPayload?.interaction_id;
+              if (
+                pollInteractionId &&
+                interaction.id?.startsWith(pollInteractionId)
+              ) {
+                return false;
+              }
+            }
+
+            return true;
+          });
+
+          // Replace if exists, otherwise add
+          const existingIndex = filtered.findIndex(
+            (i) => i?.id === interaction?.id,
           );
 
-          if (
-            !interaction?.response?.message ||
-            !hasRenderableMessageContent(interaction.response.message)
-          ) {
-            return filtered;
+          if (existingIndex >= 0) {
+            const updated = [...filtered];
+            updated[existingIndex] = interaction;
+            return updated;
           }
 
           return [...filtered, interaction];
@@ -2708,6 +3197,11 @@ export const Messages = memo(function Messages({
   const messagesWrapperRef = useRef<HTMLDivElement>(null);
   const [debuggedInteraction, setDebuggedInteraction] =
     useState<Interaction | null>(null);
+  const debugContent = JSON.stringify(
+    getDebugPayload(debuggedInteraction),
+    null,
+    2,
+  );
 
   useEffect(() => {
     if (messagesWrapperRef.current) {
@@ -2744,31 +3238,44 @@ export const Messages = memo(function Messages({
                   ? true
                   : debuggedInteraction.id === interaction.id,
               )
-              ?.map?.((interaction) => (
-                <Fragment key={interaction.id}>
-                  {interaction.utterance?.trim() ? (
-                    <ChatMessage
-                      sent
-                      headerConfig={headerConfig}
-                      interaction={interaction}
-                      codeTheme={codeTheme}
-                      setDebuggedInteraction={setDebuggedInteraction}
-                      withDebug={withDebug}
-                    />
-                  ) : null}
-                  <ChatMessage
-                    headerConfig={headerConfig}
-                    playingUrl={playingUrl}
-                    playAudio={playAudio}
-                    stopAudio={stopAudio}
-                    interaction={interaction}
-                    setDebuggedInteraction={setDebuggedInteraction}
-                    TTS={TTS}
-                    codeTheme={codeTheme}
-                    withDebug={withDebug}
-                  />
-                </Fragment>
-              ))}
+              ?.map?.((interaction) => {
+                const responseContent = interaction.response?.message?.content;
+                const hasResponseContent =
+                  typeof responseContent === "string" &&
+                  responseContent.trim().length > 0;
+                const isPending =
+                  interaction.id === "stream" ||
+                  interaction.id === "new" ||
+                  interaction.closed === false;
+
+                return (
+                  <Fragment key={interaction.id}>
+                    {interaction.utterance?.trim() ? (
+                      <ChatMessage
+                        sent
+                        headerConfig={headerConfig}
+                        interaction={interaction}
+                        codeTheme={codeTheme}
+                        setDebuggedInteraction={setDebuggedInteraction}
+                        withDebug={withDebug}
+                      />
+                    ) : null}
+                    {hasResponseContent || isPending ? (
+                      <ChatMessage
+                        headerConfig={headerConfig}
+                        playingUrl={playingUrl}
+                        playAudio={playAudio}
+                        stopAudio={stopAudio}
+                        interaction={interaction}
+                        setDebuggedInteraction={setDebuggedInteraction}
+                        TTS={TTS}
+                        codeTheme={codeTheme}
+                        withDebug={withDebug}
+                      />
+                    ) : null}
+                  </Fragment>
+                );
+              })}
 
             <Presence
               present={!!debuggedInteraction && withDebug}
@@ -2787,9 +3294,7 @@ export const Messages = memo(function Messages({
                 px="2"
               >
                 <Flex justify="end">
-                  <CopyIcon
-                    value={JSON.stringify(debuggedInteraction, null, 2)}
-                  />
+                  <CopyIcon value={debugContent} />
                 </Flex>
                 <ShikiHighlighter
                   showLanguage={false}
@@ -2797,7 +3302,7 @@ export const Messages = memo(function Messages({
                   theme={codeTheme || "github-light"}
                   style={{ outline: "none" }}
                 >
-                  {JSON.stringify(debuggedInteraction, null, 2)}
+                  {debugContent}
                 </ShikiHighlighter>
                 <Flex justify="end">
                   <IconButton
@@ -3070,7 +3575,9 @@ export const ChatMessage = memo(function ChatMessage({
             value={interaction?.utterance || ""}
             renderer={renderer as any}
           />
-        ) : !interaction?.response?.message ? (
+        ) : !interaction?.response?.message ||
+          (interaction.response.message.message_type === "TEXT" &&
+            !interaction.response.message.content.trim()) ? (
           <>
             <ReplyIndicator show={true} />
           </>

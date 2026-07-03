@@ -39,11 +39,32 @@ export type ResponseMessage =
 	  };
 
 export type Response = {
-	session_id: string;
+	session_id?: string;
+	session_token?: string;
 	message_type: string;
 	message: ResponseMessage;
 	tokens: number;
 	audio_url?: string;
+};
+
+export type PollMessage = {
+	id: string;
+	session_id: string;
+	user_id: string;
+	interaction_id: string;
+	message_type: string;
+	content: string;
+	channel: string;
+	category: string;
+	thought_type: string | null;
+	segment_id: string | null;
+	metadata: Record<string, any>;
+	timestamp: string;
+};
+
+export type PollResponse = {
+	ok: boolean;
+	messages: PollMessage[];
 };
 
 export type Interaction = {
